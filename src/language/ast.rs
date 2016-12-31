@@ -2,19 +2,25 @@
 //!
 //! The root AST type is `Document`.
 
+use super::Position;
+
 /// Contains a range of UTF-8 character offsets and token references that
 /// identify the region of the source from which the AST derived.
 pub struct Location {
-  /// The character offset at which this Node begins.
-  start: usize,
-  /// The character offset at which this Node ends.
-  end: usize,
-  // /// The Token at which this Node begins.
-  // start_token: Token,
-  // /// The Token at which this Node ends.
-  // end_token: Token,
-  // TODO: /// The Source document the AST represents.
-  // TODO: source: Source,
+  /// The character position at which this Node begins.
+  start: Position,
+  /// The character position at which this Node ends.
+  end: Position,
+}
+
+impl Location {
+  /// Creates a new location between these two bounds.
+  pub fn new(start: Position, end: Position) -> Self {
+    Location {
+      start: start,
+      end: end,
+    }
+  }
 }
 
 /// A node in the GraphQL AST represents any data structure or enumeration of

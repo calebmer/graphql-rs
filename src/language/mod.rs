@@ -8,4 +8,5 @@ mod parser;
 
 pub mod ast;
 
-pub use self::parser::{parse};
+pub use self::lexer::{Position};
+// pub use self::parser::{parse};

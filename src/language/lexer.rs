@@ -3,41 +3,40 @@ use std::num::{ParseIntError, ParseFloatError};
 use std::iter::Peekable;
 use std::str::FromStr;
 
+/// The position of a single character in a source document.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Position {
+  /// The 0-indexed position of the character. If the source document was an
+  /// array of characters, this would be the index position of that character.
+  pub index: usize,
+  /// The 1-indexed line on which this character lies. This number is helpful
+  /// when it comes to text editors. Used in conjunction with `column`.
+  pub line: usize,
+  /// The 1-indexed column on which this character lies. This number is helpful
+  /// when it comes to text editors. Used in conjunction with `line`.
+  pub column: usize,
+}
+
 /// Represents a range of characters representing a lexical token within a
 /// Source.
 #[derive(PartialEq, Debug)]
 pub struct Token {
   /// The kind of Token.
-  kind: TokenKind,
+  pub kind: TokenKind,
   /// The character offset at which this Node begins.
-  start: usize,
+  pub start: Position,
   /// The character offset at which this Node ends.
-  end: usize,
+  pub end: Position,
 }
 
 impl Token {
   /// Creates a new token of the provided kind.
-  pub fn new(kind: TokenKind, start: usize, end: usize) -> Self {
+  pub fn new(kind: TokenKind, start: Position, end: Position) -> Self {
     Token {
       kind: kind,
       start: start,
       end: end,
     }
-  }
-
-  /// The kind of the Token.
-  pub fn kind(&self) -> &TokenKind {
-    &self.kind
-  }
-
-  /// The character offset at which this Node begins.
-  pub fn start(&self) -> usize {
-    self.start
-  }
-
-  /// The character offset at which this Node ends.
-  pub fn end(&self) -> usize {
-    self.end
   }
 }
 
@@ -86,27 +85,27 @@ pub enum TokenKind {
 #[derive(PartialEq, Debug)]
 pub enum Error {
   /// The source ended unexpectedly.
-  UnexpectedEnding { pos: usize },
+  UnexpectedEnding(Position),
   /// An unknown character was found in the source such as `?` or `%`.
-  UnknownChar { pos: usize, found: char },
+  UnknownChar(Position, char),
   /// We are building an ellipsis (`...`) and we got an invalid character.
-  ExpectedEllipsisChar { pos: usize, found: char },
+  ExpectedEllipsisChar(Position, char),
   /// We expected a digit that is not 0, but we got a 0 digit.
-  ExpectedNonZeroDigit { pos: usize },
+  ExpectedNonZeroDigit(Position),
   /// We expected a digit character and got something else.
-  ExpectedDigit { pos: usize, found: char },
+  ExpectedDigit(Position, char),
   /// We had an integer parsing error. We expose the internal error object in
   /// addition to the position.
-  InvalidInteger { pos: usize, error: ParseIntError },
+  InvalidInteger(Position, ParseIntError),
   /// We had a float parsing error. We expose the internal error object in
   /// addition to the position.
-  InvalidFloat { pos: usize, error: ParseFloatError },
+  InvalidFloat(Position, ParseFloatError),
   /// We have a string that was not terminated.
-  UnterminatedString { pos: usize },
+  UnterminatedString(Position),
   /// There was an invalid escape character.
-  InvalidEscapeChar { pos: usize, found: char },
+  InvalidEscapeChar(Position, char),
   /// There was an invalid character in a unicode sequence.
-  InvalidUnicodeSequenceChar { pos: usize, found: char },
+  InvalidUnicodeSequenceChar(Position, char),
   /// This error should never occur. But if it does, this cryptic error is
   /// better then panicking.
   Unreachable,
@@ -117,6 +116,7 @@ pub enum Error {
 pub struct Lexer<I: Iterator<Item=char>> {
   chars: Chars<I>,
   done: bool,
+  peeked: Option<Result<Token, Error>>,
 }
 
 impl<I> Lexer<I> where I: Iterator<Item=char> {
@@ -125,9 +125,61 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
     Lexer {
       chars: Chars::new(iter.into_iter()),
       done: false,
+      peeked: None,
     }
   }
 
+  /// Whether or not we are done turning the source character array into tokens.
+  pub fn is_done(&self) -> bool {
+    self.done
+  }
+
+  /// The current position of our lexer in the source character iterator.
+  pub fn pos(&self) -> Position {
+    self.chars.pos
+  }
+
+  /// Returns a reference to the next token without advancing the iterator.
+  pub fn peek(&mut self) -> Option<&Result<Token, Error>> {
+    if self.peeked.is_none() {
+      self.peeked = self.next();
+    }
+    self.peeked.as_ref()
+  }
+}
+
+impl<I> Iterator for Lexer<I> where I: Iterator<Item=char> {
+  type Item = Result<Token, Error>;
+
+  fn next(&mut self) -> Option<Result<Token, Error>> {
+    // If we are done, only emit `None` from now on.
+    if self.done {
+      return None;
+    }
+    // If we have peeked, we should return the peeked value.
+    if let Some(_) = self.peeked {
+      return self.peeked.take();
+    }
+    match self.next_token() {
+      // If we got a token, return that token.
+      Ok(Some(token)) => {
+        Some(Ok(token))
+      },
+      // If we did not get a token, we are done without error.
+      Ok(None) => {
+        self.done = true;
+        None
+      },
+      // If we got an error, return the error and mark ourselves as done.
+      Err(error) => {
+        self.done = true;
+        Some(Err(error))
+      },
+    }
+  }
+}
+
+impl<I> Lexer<I> where I: Iterator<Item=char> {
   /// Used by the iterator `next` method to get the next token. If we get an
   /// `Err`, the iterator finishes with an error. If we get `Ok(None)` the
   /// iterator has completed succesfully.
@@ -167,10 +219,11 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
         let start = self.chars.pos;
         let mut comment = String::new();
         loop {
+          let prev = self.chars.pos;
           // If we have a newline, return the comment string. Otherwise, add
           // the character to the comment.
           match self.chars.next() {
-            Some('\n') => return Ok(Some(Token::new(TokenKind::Comment(comment), start, self.chars.pos - 1))),
+            Some('\n') => return Ok(Some(Token::new(TokenKind::Comment(comment), start, prev))),
             Some(c) => comment.push(c),
             None => return Ok(Some(Token::new(TokenKind::Comment(comment), start, self.chars.pos))),
           }
@@ -179,14 +232,20 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
 
       // If we match a period, we try to get an ellipsis token.
       Some('.') => {
-        match (self.chars.next(), self.chars.next()) {
+        let mut pair: (Option<char>, Option<char>) = (None, None);
+        let pos1 = self.chars.pos;
+        pair.0 = self.chars.next();
+        let pos2 = self.chars.pos;
+        pair.1 = self.chars.next();
+        let pos3 = self.chars.pos;
+        match pair {
           // If the next two characters were periods, we are good.
-          (Some('.'), Some('.')) => Ok(Some(Token::new(TokenKind::Ellipsis, self.chars.pos - 2, self.chars.pos))),
+          (Some('.'), Some('.')) => Ok(Some(Token::new(TokenKind::Ellipsis, pos1, pos3))),
           // Handle the error cases.
-          (Some('.'), Some(found)) => Err(Error::ExpectedEllipsisChar { pos: self.chars.pos, found: found }),
-          (Some('.'), None) => Err(Error::UnexpectedEnding { pos: self.chars.pos }),
-          (Some(found), _) => Err(Error::ExpectedEllipsisChar { pos: self.chars.pos - 1, found: found }),
-          (None, _) => Err(Error::UnexpectedEnding { pos: self.chars.pos }),
+          (Some('.'), Some(found)) => Err(Error::ExpectedEllipsisChar(pos3, found)),
+          (Some('.'), None) => Err(Error::UnexpectedEnding(self.chars.pos)),
+          (Some(found), _) => Err(Error::ExpectedEllipsisChar(pos2, found)),
+          (None, _) => Err(Error::UnexpectedEnding(self.chars.pos)),
         }
       },
 
@@ -236,9 +295,7 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
               // an error because GraphQL does not allow numbers like `012` or
               // `000`.
               if integer_string == "0" || integer_string == "-0" {
-                return Err(Error::ExpectedNonZeroDigit {
-                  pos: self.chars.pos,
-                });
+                return Err(Error::ExpectedNonZeroDigit(self.chars.pos));
               }
 
               // Unwrap the character which we can assume is there.
@@ -259,10 +316,7 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
 
               // If we already have a fraction part, return an error.
               if fraction_string.is_some() || exponent_string.is_some() {
-                return Err(Error::ExpectedDigit {
-                  pos: self.chars.pos,
-                  found: c,
-                });
+                return Err(Error::ExpectedDigit(self.chars.pos, c));
               }
 
               // Initialize our fraction.
@@ -277,10 +331,7 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
 
               // If we already have an exponent part, return an error.
               if exponent_string.is_some() {
-                return Err(Error::ExpectedDigit {
-                  pos: self.chars.pos,
-                  found: c,
-                });
+                return Err(Error::ExpectedDigit(self.chars.pos, c));
               }
 
               // Positive or negative sign characters need special handling.
@@ -309,10 +360,7 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
               // Consume the letter.
               let c = try!(self.chars.next().ok_or(Error::Unreachable));
 
-              return Err(Error::ExpectedDigit {
-                pos: self.chars.pos,
-                found: c,
-              });
+              return Err(Error::ExpectedDigit(self.chars.pos, c));
             },
 
             // If we do not have another number, finish the token and return it.
@@ -320,10 +368,9 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
               // If any of the strings do not have any digits in them, return an
               // error.
               if integer_string == "" || integer_string == "-" || fraction_string == Some(String::from("")) || exponent_string == Some(String::from("")) || exponent_string == Some(String::from("-")) {
-                let pos = self.chars.pos;
-                match self.chars.peek() {
-                  Some(found) => return Err(Error::ExpectedDigit { pos: pos + 1, found: found.to_owned() }),
-                  None => return Err(Error::UnexpectedEnding { pos: pos }),
+                match self.chars.next() {
+                  Some(found) => return Err(Error::ExpectedDigit(self.chars.pos, found)),
+                  None => return Err(Error::UnexpectedEnding(self.chars.pos)),
                 }
               }
 
@@ -331,13 +378,13 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
               let kind = match (fraction_string.as_ref(), exponent_string.as_ref()) {
                 // Parse as an integer if we have no fraction or exponent.
                 (None, None) => {
-                  TokenKind::Int(try!(i32::from_str(&integer_string).map_err(|error| Error::InvalidInteger { pos: start, error: error })))
+                  TokenKind::Int(try!(i32::from_str(&integer_string).map_err(|error| Error::InvalidInteger(start, error))))
                 },
 
                 // Parse as a float if we have a fraction or exponent.
                 (fraction_string, exponent_string) => {
                   let float_string = String::new() + &integer_string + "." + fraction_string.map(String::as_str).unwrap_or("0") + "e" + exponent_string.map(String::as_str).unwrap_or("0");
-                  TokenKind::Float(try!(f32::from_str(&float_string).map_err(|error| Error::InvalidFloat { pos: start, error: error })))
+                  TokenKind::Float(try!(f32::from_str(&float_string).map_err(|error| Error::InvalidFloat(start, error))))
                 },
               };
 
@@ -358,7 +405,7 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
             // End the string if we see another double quote.
             Some('"') => return Ok(Some(Token::new(TokenKind::String(string), start, self.chars.pos))),
             // Error if there is a newline in the string.
-            Some('\n') => return Err(Error::UnterminatedString { pos: self.chars.pos }),
+            Some('\n') => return Err(Error::UnterminatedString(self.chars.pos)),
             // If the user is trying to escape something. Do some special
             // logic.
             Some('\\') => {
@@ -383,8 +430,8 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
                       Some(c @ '0' ... '9') |
                       Some(c @ 'a' ... 'f') |
                       Some(c @ 'A' ... 'F') => sequence.push(c),
-                      Some(found) => return Err(Error::InvalidUnicodeSequenceChar { pos: self.chars.pos, found: found }),
-                      None => return Err(Error::UnexpectedEnding { pos: self.chars.pos }),
+                      Some(found) => return Err(Error::InvalidUnicodeSequenceChar(self.chars.pos, found)),
+                      None => return Err(Error::UnexpectedEnding(self.chars.pos)),
                     }
                   }
                   // The errors here should never happen because we make sure
@@ -395,48 +442,23 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
                 },
 
                 // The character is not allowed as an escape character.
-                Some(found) => return Err(Error::InvalidEscapeChar { pos: self.chars.pos, found: found }),
+                Some(found) => return Err(Error::InvalidEscapeChar(self.chars.pos, found)),
                 // If we didn’t get a character we have an unexpected ending.
-                None => return Err(Error::UnexpectedEnding { pos: self.chars.pos }),
+                None => return Err(Error::UnexpectedEnding(self.chars.pos)),
               }
             },
             // Otherwise add the character to the string.
             Some(c) => string.push(c),
             // Error if we got nothing. The string must be closed!
-            None => return Err(Error::UnexpectedEnding { pos: self.chars.pos }),
+            None => return Err(Error::UnexpectedEnding(self.chars.pos)),
           }
         }
       },
 
       // If we had no other match, return an unknown character error.
-      Some(found) => Err(Error::UnknownChar { pos: self.chars.pos, found: found }),
+      Some(found) => Err(Error::UnknownChar(self.chars.pos, found)),
 
       None => Ok(None),
-    }
-  }
-}
-
-impl<I> Iterator for Lexer<I> where I: Iterator<Item=char> {
-  type Item = Result<Token, Error>;
-
-  fn next(&mut self) -> Option<Result<Token, Error>> {
-    // If we are done, only emit `None` from now on.
-    if self.done {
-      return None;
-    }
-    match self.next_token() {
-      // If we got a token, return that token.
-      Ok(Some(token)) => Some(Ok(token)),
-      // If we did not get a token, we are done without error.
-      Ok(None) => {
-        self.done = true;
-        None
-      },
-      // If we got an error, return the error and mark ourselves as done.
-      Err(error) => {
-        self.done = true;
-        Some(Err(error))
-      },
     }
   }
 }
@@ -448,9 +470,9 @@ struct Chars<I: Iterator<Item=char>> {
   iter: Peekable<I>,
   /// The current item which consumers can look at.
   current: Option<char>,
-  /// The index position of the iterator. Every time `next()` is called, this
-  /// field is updated.
-  pos: usize,
+  /// The position of the iterator. Every time `next()` is called, this field is
+  /// updated.
+  pos: Position,
 }
 
 impl<I> Chars<I> where I: Iterator<Item=char> {
@@ -459,7 +481,11 @@ impl<I> Chars<I> where I: Iterator<Item=char> {
     Chars {
       iter: iter.peekable(),
       current: None,
-      pos: 0,
+      pos: Position {
+        index: 0,
+        line: 1,
+        column: 1,
+      },
     }
   }
 
@@ -480,8 +506,19 @@ impl<I> Iterator for Chars<I> where I: Iterator<Item=char> {
     // position. The reason we have the `self.current != None` check is we want
     // our position to be 0 after the first `next()` call, but because the
     // position is of type `usize` we can’t start it at -1.
-    if self.current != None && next.is_some() {
-      self.pos += 1;
+    if self.current != None {
+      if let Some(c) = next {
+        self.pos.index += 1;
+
+        // If the character is a newline, increment the line number and reset the
+        // column number. Otherwise just increment the column number.
+        if c == '\n' {
+          self.pos.line += 1;
+          self.pos.column = 1;
+        } else {
+          self.pos.column += 1;
+        }
+      }
     }
 
     // Set the current item.
@@ -494,407 +531,433 @@ impl<I> Iterator for Chars<I> where I: Iterator<Item=char> {
 #[cfg(test)]
 mod tests {
   use std::str::FromStr;
-  use super::{Lexer, Token, TokenKind, Error};
+  use super::{Lexer, Token, TokenKind, Error, Position};
+
+  /// Creates a `Position` value for a one line situation as is common in our
+  /// tests. Takes the 0-indexed value and generates the column and line
+  /// numbers.
+  fn pos1(index: usize) -> Position {
+    Position {
+      index: index,
+      line: 1,
+      column: index + 1,
+    }
+  }
 
   #[test]
   fn test_punctuator_one() {
-    assert_eq!(Lexer::new("!".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Bang, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("$".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Dollar, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("(".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::LeftParen, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new(")".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::RightParen, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new(":".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Colon, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("=".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Equals, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("@".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::At, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("[".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::LeftBracket, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("]".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::RightBracket, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("{".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::LeftBrace, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("}".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::RightBrace, start: 0, end: 0 }]);
-    assert_eq!(Lexer::new("|".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Pipe, start: 0, end: 0 }]);
+    assert_eq!(Lexer::new("!".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Bang, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("$".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Dollar, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("(".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::LeftParen, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new(")".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::RightParen, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new(":".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Colon, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("=".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Equals, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("@".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::At, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("[".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::LeftBracket, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("]".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::RightBracket, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("{".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::LeftBrace, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("}".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::RightBrace, start: pos1(0), end: pos1(0) }]);
+    assert_eq!(Lexer::new("|".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![Token { kind: TokenKind::Pipe, start: pos1(0), end: pos1(0) }]);
   }
 
   #[test]
   fn test_punctuator_many() {
     assert_eq!(Lexer::new("!$():=@[]{}|".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Bang, start: 0, end: 0 },
-      Token { kind: TokenKind::Dollar, start: 1, end: 1 },
-      Token { kind: TokenKind::LeftParen, start: 2, end: 2 },
-      Token { kind: TokenKind::RightParen, start: 3, end: 3 },
-      Token { kind: TokenKind::Colon, start: 4, end: 4 },
-      Token { kind: TokenKind::Equals, start: 5, end: 5 },
-      Token { kind: TokenKind::At, start: 6, end: 6 },
-      Token { kind: TokenKind::LeftBracket, start: 7, end: 7 },
-      Token { kind: TokenKind::RightBracket, start: 8, end: 8 },
-      Token { kind: TokenKind::LeftBrace, start: 9, end: 9 },
-      Token { kind: TokenKind::RightBrace, start: 10, end: 10 },
-      Token { kind: TokenKind::Pipe, start: 11, end: 11 },
+      Token { kind: TokenKind::Bang, start: pos1(0), end: pos1(0) },
+      Token { kind: TokenKind::Dollar, start: pos1(1), end: pos1(1) },
+      Token { kind: TokenKind::LeftParen, start: pos1(2), end: pos1(2) },
+      Token { kind: TokenKind::RightParen, start: pos1(3), end: pos1(3) },
+      Token { kind: TokenKind::Colon, start: pos1(4), end: pos1(4) },
+      Token { kind: TokenKind::Equals, start: pos1(5), end: pos1(5) },
+      Token { kind: TokenKind::At, start: pos1(6), end: pos1(6) },
+      Token { kind: TokenKind::LeftBracket, start: pos1(7), end: pos1(7) },
+      Token { kind: TokenKind::RightBracket, start: pos1(8), end: pos1(8) },
+      Token { kind: TokenKind::LeftBrace, start: pos1(9), end: pos1(9) },
+      Token { kind: TokenKind::RightBrace, start: pos1(10), end: pos1(10) },
+      Token { kind: TokenKind::Pipe, start: pos1(11), end: pos1(11) },
     ]);
   }
 
   #[test]
   fn test_punctuator_comment_one() {
     assert_eq!(Lexer::new("# Hello, world!".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Comment(String::from(" Hello, world!")), start: 0, end: 14 },
+      Token { kind: TokenKind::Comment(String::from(" Hello, world!")), start: pos1(0), end: pos1(14) },
     ]);
   }
 
   #[test]
   fn test_punctuator_comment_many() {
     assert_eq!(Lexer::new("# Hello, world!\n# This is another comment!".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Comment(String::from(" Hello, world!")), start: 0, end: 14 },
-      Token { kind: TokenKind::Comment(String::from(" This is another comment!")), start: 16, end: 41 },
+      Token { kind: TokenKind::Comment(String::from(" Hello, world!")), start: Position { index: 0, line: 1, column: 1 }, end: Position { index: 14, line: 1, column: 15 } },
+      Token { kind: TokenKind::Comment(String::from(" This is another comment!")), start: Position { index: 16, line: 2, column: 2 }, end: Position { index: 41, line: 2, column: 27 } },
     ]);
   }
 
   #[test]
   fn test_ellipsis_one() {
     assert_eq!(Lexer::new("...".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Ellipsis, start: 0, end: 2 },
+      Token { kind: TokenKind::Ellipsis, start: pos1(0), end: pos1(2) },
     ]);
   }
 
   #[test]
   fn test_ellipsis_two() {
     assert_eq!(Lexer::new("......".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Ellipsis, start: 0, end: 2 },
-      Token { kind: TokenKind::Ellipsis, start: 3, end: 5 },
+      Token { kind: TokenKind::Ellipsis, start: pos1(0), end: pos1(2) },
+      Token { kind: TokenKind::Ellipsis, start: pos1(3), end: pos1(5) },
     ]);
     assert_eq!(Lexer::new(" ... ... ".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Ellipsis, start: 1, end: 3 },
-      Token { kind: TokenKind::Ellipsis, start: 5, end: 7 },
+      Token { kind: TokenKind::Ellipsis, start: pos1(1), end: pos1(3) },
+      Token { kind: TokenKind::Ellipsis, start: pos1(5), end: pos1(7) },
     ]);
   }
 
   #[test]
   fn test_ellipsis_error_one() {
     assert_eq!(Lexer::new(".".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 0 },
+      Error::UnexpectedEnding(pos1(0)),
     ]);
     assert_eq!(Lexer::new("  .".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 2 },
+      Error::UnexpectedEnding(pos1(2)),
     ]);
     assert_eq!(Lexer::new(".xy".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedEllipsisChar { pos: 1, found: 'x' },
+      Error::ExpectedEllipsisChar(pos1(1), 'x'),
     ]);
   }
 
   #[test]
   fn test_ellipsis_error_two() {
     assert_eq!(Lexer::new("..".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 1 },
+      Error::UnexpectedEnding(pos1(1)),
     ]);
     assert_eq!(Lexer::new("  ..".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 3 },
+      Error::UnexpectedEnding(pos1(3)),
     ]);
     assert_eq!(Lexer::new("..y".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedEllipsisChar { pos: 2, found: 'y' },
+      Error::ExpectedEllipsisChar(pos1(2), 'y'),
     ]);
   }
 
   #[test]
   fn test_name_basic() {
     assert_eq!(Lexer::new("hello".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Name(String::from("hello")), start: 0, end: 4 },
+      Token { kind: TokenKind::Name(String::from("hello")), start: pos1(0), end: pos1(4) },
     ]);
   }
 
   #[test]
   fn test_name_uppercase() {
     assert_eq!(Lexer::new("HELLO".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Name(String::from("HELLO")), start: 0, end: 4 },
+      Token { kind: TokenKind::Name(String::from("HELLO")), start: pos1(0), end: pos1(4) },
     ]);
   }
 
   #[test]
   fn test_name_with_numbers() {
     assert_eq!(Lexer::new("hello123".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Name(String::from("hello123")), start: 0, end: 7 },
+      Token { kind: TokenKind::Name(String::from("hello123")), start: pos1(0), end: pos1(7) },
     ]);
   }
 
   #[test]
   fn test_name_with_underscore() {
     assert_eq!(Lexer::new("hello_world".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Name(String::from("hello_world")), start: 0, end: 10 },
+      Token { kind: TokenKind::Name(String::from("hello_world")), start: pos1(0), end: pos1(10) },
     ]);
   }
 
   #[test]
   fn test_name_with_all() {
     assert_eq!(Lexer::new("H3ll0_W0rld".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Name(String::from("H3ll0_W0rld")), start: 0, end: 10 },
+      Token { kind: TokenKind::Name(String::from("H3ll0_W0rld")), start: pos1(0), end: pos1(10) },
     ]);
   }
 
   #[test]
   fn test_string_basic() {
     assert_eq!(Lexer::new("\"Hello, world!\"".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::String(String::from("Hello, world!")), start: 0, end: 14 },
+      Token { kind: TokenKind::String(String::from("Hello, world!")), start: pos1(0), end: pos1(14) },
     ]);
   }
 
   #[test]
   fn test_string_error_newline() {
     assert_eq!(Lexer::new("\"Hello,\nworld!\"".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnterminatedString { pos: 7 },
+      Error::UnterminatedString(Position { index: 7, line: 2, column: 1 }),
     ]);
   }
 
   #[test]
   fn test_string_error_ending() {
     assert_eq!(Lexer::new("\"Hello,".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 6 },
+      Error::UnexpectedEnding(pos1(6)),
     ]);
   }
 
   #[test]
   fn test_string_escapes() {
     assert_eq!(Lexer::new(r#""\"\\\/\b\f\n\r\t""#.chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::String(String::from("\"\\/\u{0008}\u{000C}\n\r\t")), start: 0, end: 17 },
+      Token { kind: TokenKind::String(String::from("\"\\/\u{0008}\u{000C}\n\r\t")), start: pos1(0), end: pos1(17) },
     ]);
   }
 
   #[test]
   fn test_string_escape_error_invalid() {
     assert_eq!(Lexer::new(r#""\j""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::InvalidEscapeChar { pos: 2, found: 'j' },
+      Error::InvalidEscapeChar(pos1(2), 'j'),
     ]);
   }
 
   #[test]
   fn test_string_escape_error_ending() {
     assert_eq!(Lexer::new(r#""\"#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 1 },
+      Error::UnexpectedEnding(pos1(1)),
     ]);
   }
 
   #[test]
   fn test_string_unicode_escape() {
     assert_eq!(Lexer::new(r#""\u000D\u000A""#.chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::String(String::from("\r\n")), start: 0, end: 13 },
+      Token { kind: TokenKind::String(String::from("\r\n")), start: pos1(0), end: pos1(13) },
     ]);
   }
 
   #[test]
   fn test_string_unicode_error_range() {
-    assert_eq!(Lexer::new(r#""\uW000""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![Error::InvalidUnicodeSequenceChar { pos: 3, found: 'W' }]);
-    assert_eq!(Lexer::new(r#""\u0X00""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![Error::InvalidUnicodeSequenceChar { pos: 4, found: 'X' }]);
-    assert_eq!(Lexer::new(r#""\u00Y0""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![Error::InvalidUnicodeSequenceChar { pos: 5, found: 'Y' }]);
-    assert_eq!(Lexer::new(r#""\u000Z""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![Error::InvalidUnicodeSequenceChar { pos: 6, found: 'Z' }]);
+    assert_eq!(Lexer::new(r#""\uW000""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![Error::InvalidUnicodeSequenceChar(pos1(3), 'W')]);
+    assert_eq!(Lexer::new(r#""\u0X00""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![Error::InvalidUnicodeSequenceChar(pos1(4), 'X')]);
+    assert_eq!(Lexer::new(r#""\u00Y0""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![Error::InvalidUnicodeSequenceChar(pos1(5), 'Y')]);
+    assert_eq!(Lexer::new(r#""\u000Z""#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![Error::InvalidUnicodeSequenceChar(pos1(6), 'Z')]);
   }
 
   #[test]
   fn test_string_unicode_error_ending() {
     assert_eq!(Lexer::new(r#""\u00"#.chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 4 },
+      Error::UnexpectedEnding(pos1(4)),
     ]);
   }
 
   #[test]
   fn test_string_invalid_char() {
     assert_eq!(Lexer::new("&".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnknownChar { pos: 0, found: '&' },
+      Error::UnknownChar(pos1(0), '&'),
     ]);
     assert_eq!(Lexer::new(" &".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnknownChar { pos: 1, found: '&' },
+      Error::UnknownChar(pos1(1), '&'),
     ]);
     assert_eq!(Lexer::new("{&".chars()).collect::<Vec<Result<Token, Error>>>(), vec![
-      Ok(Token { kind: TokenKind::LeftBrace, start: 0, end: 0 }),
-      Err(Error::UnknownChar { pos: 1, found: '&' }),
+      Ok(Token { kind: TokenKind::LeftBrace, start: pos1(0), end: pos1(0) }),
+      Err(Error::UnknownChar(pos1(1), '&')),
     ]);
   }
 
   #[test]
   fn test_integer() {
     assert_eq!(Lexer::new("1".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(1), start: 0, end: 0 },
+      Token { kind: TokenKind::Int(1), start: pos1(0), end: pos1(0) },
     ]);
     assert_eq!(Lexer::new("12".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(12), start: 0, end: 1 },
+      Token { kind: TokenKind::Int(12), start: pos1(0), end: pos1(1) },
     ]);
     assert_eq!(Lexer::new("5000".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(5000), start: 0, end: 3 },
+      Token { kind: TokenKind::Int(5000), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("98765".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(98765), start: 0, end: 4 },
+      Token { kind: TokenKind::Int(98765), start: pos1(0), end: pos1(4) },
     ]);
     assert_eq!(Lexer::new("43210".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(43210), start: 0, end: 4 },
+      Token { kind: TokenKind::Int(43210), start: pos1(0), end: pos1(4) },
     ]);
   }
 
   #[test]
   fn test_integer_negative() {
     assert_eq!(Lexer::new("-1".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(-1), start: 0, end: 1 },
+      Token { kind: TokenKind::Int(-1), start: pos1(0), end: pos1(1) },
     ]);
     assert_eq!(Lexer::new("-12".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(-12), start: 0, end: 2 },
+      Token { kind: TokenKind::Int(-12), start: pos1(0), end: pos1(2) },
     ]);
     assert_eq!(Lexer::new("-5000".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(-5000), start: 0, end: 4 },
+      Token { kind: TokenKind::Int(-5000), start: pos1(0), end: pos1(4) },
     ]);
     assert_eq!(Lexer::new("-98765".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(-98765), start: 0, end: 5 },
+      Token { kind: TokenKind::Int(-98765), start: pos1(0), end: pos1(5) },
     ]);
     assert_eq!(Lexer::new("-43210".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Int(-43210), start: 0, end: 5 },
+      Token { kind: TokenKind::Int(-43210), start: pos1(0), end: pos1(5) },
     ]);
   }
 
   #[test]
   fn test_integer_error_overload() {
     assert_eq!(Lexer::new("9999999999".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::InvalidInteger { pos: 0, error: i32::from_str("9999999999").unwrap_err() },
+      Error::InvalidInteger(pos1(0), i32::from_str("9999999999").unwrap_err()),
     ]);
   }
 
   #[test]
   fn test_integer_error_non_zero() {
     assert_eq!(Lexer::new("012".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedNonZeroDigit { pos: 0 },
+      Error::ExpectedNonZeroDigit(pos1(0)),
     ]);
     assert_eq!(Lexer::new("-012".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedNonZeroDigit { pos: 1 },
+      Error::ExpectedNonZeroDigit(pos1(1)),
     ]);
   }
 
   #[test]
   fn test_integer_error_letter() {
     assert_eq!(Lexer::new("12a".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 2, found: 'a' },
+      Error::ExpectedDigit(pos1(2), 'a'),
     ]);
     assert_eq!(Lexer::new("-12z".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 3, found: 'z' },
+      Error::ExpectedDigit(pos1(3), 'z'),
     ]);
   }
 
   #[test]
   fn test_float() {
     assert_eq!(Lexer::new("3.0".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(3.0), start: 0, end: 2 },
+      Token { kind: TokenKind::Float(3.0), start: pos1(0), end: pos1(2) },
     ]);
     assert_eq!(Lexer::new("3.14".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(3.14), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(3.14), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("-3.14".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(-3.14), start: 0, end: 4 },
+      Token { kind: TokenKind::Float(-3.14), start: pos1(0), end: pos1(4) },
     ]);
   }
 
   #[test]
   fn test_float_error_double_dot() {
     assert_eq!(Lexer::new("3.14.15".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 4, found: '.' },
+      Error::ExpectedDigit(pos1(4), '.'),
     ]);
   }
 
   #[test]
   fn test_float_exponent() {
     assert_eq!(Lexer::new("2e2".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(2e2), start: 0, end: 2 },
+      Token { kind: TokenKind::Float(2e2), start: pos1(0), end: pos1(2) },
     ]);
     assert_eq!(Lexer::new("2E2".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(2e2), start: 0, end: 2 },
+      Token { kind: TokenKind::Float(2e2), start: pos1(0), end: pos1(2) },
     ]);
     assert_eq!(Lexer::new("3e4".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(3e4), start: 0, end: 2 },
+      Token { kind: TokenKind::Float(3e4), start: pos1(0), end: pos1(2) },
     ]);
     assert_eq!(Lexer::new("3E4".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(3e4), start: 0, end: 2 },
+      Token { kind: TokenKind::Float(3e4), start: pos1(0), end: pos1(2) },
     ]);
   }
 
   #[test]
   fn test_float_exponent_signs() {
     assert_eq!(Lexer::new("2e-2".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(2e-2), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(2e-2), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("2E-2".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(2e-2), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(2e-2), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("3e-4".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(3e-4), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(3e-4), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("3E-4".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(3e-4), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(3e-4), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("2e+2".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(2e+2), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(2e+2), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("2E+2".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(2e+2), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(2e+2), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("3e+4".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(3e+4), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(3e+4), start: pos1(0), end: pos1(3) },
     ]);
     assert_eq!(Lexer::new("3E+4".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(3e+4), start: 0, end: 3 },
+      Token { kind: TokenKind::Float(3e+4), start: pos1(0), end: pos1(3) },
     ]);
   }
 
   #[test]
   fn test_float_overload() {
     assert_eq!(Lexer::new("99999999.0".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
-      Token { kind: TokenKind::Float(100000000_f32), start: 0, end: 9 },
+      Token { kind: TokenKind::Float(100000000_f32), start: pos1(0), end: pos1(9) },
     ]);
   }
 
   #[test]
   fn test_float_error_letter() {
     assert_eq!(Lexer::new("12.0a".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 4, found: 'a' },
+      Error::ExpectedDigit(pos1(4), 'a'),
     ]);
     assert_eq!(Lexer::new("-12.0z".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 5, found: 'z' },
+      Error::ExpectedDigit(pos1(5), 'z'),
     ]);
   }
 
   #[test]
   fn test_float_error_exponent_double_e() {
     assert_eq!(Lexer::new("12e2e4".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 4, found: 'e' },
+      Error::ExpectedDigit(pos1(4), 'e'),
     ]);
   }
 
   #[test]
   fn test_number_error_empty_integer() {
     assert_eq!(Lexer::new("- ".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 1, found: ' ' },
+      Error::ExpectedDigit(pos1(1), ' '),
     ]);
     assert_eq!(Lexer::new("-".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 0 },
+      Error::UnexpectedEnding(pos1(0)),
     ]);
   }
 
   #[test]
   fn test_number_error_empty_fraction() {
     assert_eq!(Lexer::new("1. ".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 2, found: ' ' },
+      Error::ExpectedDigit(pos1(2), ' '),
     ]);
     assert_eq!(Lexer::new("1.".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 1 },
+      Error::UnexpectedEnding(pos1(1)),
     ]);
   }
 
   #[test]
   fn test_number_error_empty_exponent() {
     assert_eq!(Lexer::new("1e ".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 2, found: ' ' },
+      Error::ExpectedDigit(pos1(2), ' '),
     ]);
     assert_eq!(Lexer::new("1e".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 1 },
+      Error::UnexpectedEnding(pos1(1)),
     ]);
     assert_eq!(Lexer::new("1e+ ".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 3, found: ' ' },
+      Error::ExpectedDigit(pos1(3), ' '),
     ]);
     assert_eq!(Lexer::new("1e+".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 2 },
+      Error::UnexpectedEnding(pos1(2)),
     ]);
     assert_eq!(Lexer::new("1e- ".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::ExpectedDigit { pos: 3, found: ' ' },
+      Error::ExpectedDigit(pos1(3), ' '),
     ]);
     assert_eq!(Lexer::new("1e-".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnexpectedEnding { pos: 2 },
+      Error::UnexpectedEnding(pos1(2)),
     ]);
+  }
+
+  #[test]
+  fn test_lexer_peek() {
+    let mut lexer = Lexer::new("{}".chars());
+    assert_eq!(lexer.peek(), Some(&Ok(Token::new(TokenKind::LeftBrace, pos1(0), pos1(0)))));
+    assert_eq!(lexer.peek(), Some(&Ok(Token::new(TokenKind::LeftBrace, pos1(0), pos1(0)))));
+    assert_eq!(lexer.next(), Some(Ok(Token::new(TokenKind::LeftBrace, pos1(0), pos1(0)))));
+    assert_eq!(lexer.peek(), Some(&Ok(Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
+    assert_eq!(lexer.peek(), Some(&Ok(Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
+    assert_eq!(lexer.next(), Some(Ok(Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
+    assert_eq!(lexer.peek(), None);
+    assert_eq!(lexer.peek(), None);
+    assert_eq!(lexer.next(), None);
+    assert_eq!(lexer.next(), None);
   }
 }
