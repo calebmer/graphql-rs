@@ -1,18 +1,26 @@
 use super::ast;
 
+/// Prints a GraphQL AST to a string using some reasonable default formatting
+/// options.
 pub fn print(document: &ast::Document) -> String {
   let mut printer = Printer {
-    string: String::new(),
+    output: String::new(),
     indentation_size: 2,
     indentation_level: 0,
   };
   printer.print_document(document);
-  printer.string
+  printer.output
 }
 
+/// A printer instance holds some internal printing state including the output
+/// string and the indentation level.
 struct Printer {
-  string: String,
+  /// The output string. This is the output which can be returned when we are
+  /// done printing.
+  output: String,
+  /// The size of a single level of indentation.
   indentation_size: u8,
+  /// State for the current indentation level of our printer.
   indentation_level: u8,
 }
 
@@ -21,14 +29,19 @@ impl Printer {
   // Utilities
   //////////////////////////////////////////////////////////////////////////////
 
+  /// Adds a character to the internal output we are printing.
   fn push(&mut self, character: char) {
-    self.string.push(character);
+    self.output.push(character);
   }
 
+  /// Adds a string to the internal output we are printing.
   fn push_str(&mut self, string: &str) {
-    self.string.push_str(string);
+    self.output.push_str(string);
   }
 
+  /// Prints many itmes using a given printer function and a separator string.
+  /// The separator string will be printed in between each item. Works somewhat
+  /// like a join.
   fn many<T>(
     &mut self,
     items: &Vec<T>,
@@ -47,14 +60,21 @@ impl Printer {
     }
   }
 
+  /// Increases the printer state for the internal indentation level. Now
+  /// whenever `line` is called an extra level of indentation will be added.
   fn indent(&mut self) {
     self.indentation_level += self.indentation_size;
   }
 
+  /// Removes a level of indentation from the internal printer state. Now
+  /// whenever `line` is called a level of indentation will be removed.
+  ///
+  /// Will panic if the indentation level is currently 0.
   fn deindent(&mut self) {
     self.indentation_level -= self.indentation_size;
   }
 
+  /// Creates a new line with the internal printer indentation state.
   fn line(&mut self) {
     self.push('\n');
     for _ in 0..self.indentation_level {
