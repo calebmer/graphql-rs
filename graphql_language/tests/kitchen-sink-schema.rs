@@ -1,11 +1,11 @@
 #![cfg(feature = "type_system")]
 
-extern crate graphql;
+extern crate graphql_language;
 
 use std::io::prelude::*;
 use std::fs::File;
-use graphql::language::parse_without_location;
-use graphql::language::ast::*;
+use graphql_language::parse_without_location;
+use graphql_language::ast::*;
 
 #[test]
 fn parse_kitchen_sink_schema() {
