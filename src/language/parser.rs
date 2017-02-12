@@ -340,11 +340,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     match self.next_if_any_name().as_ref().map(|x| &**x) {
       Some("query") => Ok(ast::OperationType::Query),
       Some("mutation") => Ok(ast::OperationType::Mutation),
-
-      // Only parse subscriptions if the feature were enabled.
-      #[cfg(feature = "subscriptions")]
       Some("subscription") => Ok(ast::OperationType::Subscription),
-
       _ => Err(self.unexpected()),
     }
   }

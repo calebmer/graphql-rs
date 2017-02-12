@@ -108,9 +108,6 @@ node_struct! {
 pub enum OperationType {
   Query,
   Mutation,
-
-  // Only allow a subscriptions operation type if the feature were enabled.
-  #[cfg(feature = "subscriptions")]
   Subscription,
 }
 
