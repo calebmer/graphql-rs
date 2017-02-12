@@ -938,7 +938,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
       &TokenKind::LeftBrace,
       Parser::parse_field_definition,
       &TokenKind::RightBrace,
-      false,
+      true,
     ));
     Ok(ast::ObjectTypeDefinition {
       loc: self.loc(start),
@@ -1078,7 +1078,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     loop {
       members.push(try!(self.parse_named_type()));
       // If the next character is not a pipe then break out of the loop.
-      if !self.check(&TokenKind::Pipe) {
+      if let None = self.next_if(&TokenKind::Pipe) {
         break;
       }
     }
@@ -1188,7 +1188,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     loop {
       locations.push(try!(self.parse_name()));
       // If the next character is not a pipe then break out of the loop.
-      if !self.check(&TokenKind::Pipe) {
+      if let None = self.next_if(&TokenKind::Pipe) {
         break;
       }
     }
