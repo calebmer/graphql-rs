@@ -113,22 +113,15 @@ fn parse_kitchen_sink() {
                     directives: vec![],
                     selection_set: None,
                   }),
-                  Selection::FragmentSpread(FragmentSpread {
+                  Selection::InlineFragment(InlineFragment {
                     loc: None,
-                    name: Name {
+                    type_condition: Some(NamedType {
                       loc: None,
-                      value: String::from("on"),
-                    },
-                    directives: vec![],
-                  }),
-                  Selection::Field(Field {
-                    loc: None,
-                    alias: None,
-                    name: Name {
-                      loc: None,
-                      value: String::from("User"),
-                    },
-                    arguments: vec![],
+                      name: Name {
+                        loc: None,
+                        value: String::from("User"),
+                      },
+                    }),
                     directives: vec![
                       Directive {
                         loc: None,
@@ -139,7 +132,7 @@ fn parse_kitchen_sink() {
                         arguments: vec![],
                       },
                     ],
-                    selection_set: Some(SelectionSet {
+                    selection_set: SelectionSet {
                       loc: None,
                       selections: vec![
                         Selection::Field(Field {
@@ -256,7 +249,7 @@ fn parse_kitchen_sink() {
                           }),
                         }),
                       ],
-                    }),
+                    },
                   }),
                   Selection::InlineFragment(InlineFragment {
                     loc: None,

@@ -543,17 +543,19 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let start_after_ellipsis = self.pos();
 
     // If there is a name to eat then this is a fragment spread.
-    if let Some(name_value) = self.next_if_any_name() {
-      let name = ast::Name {
-        loc: self.loc(start_after_ellipsis),
-        value: name_value,
-      };
-      let directives = try!(self.parse_directives());
-      return Ok(ast::Selection::FragmentSpread(ast::FragmentSpread {
-        loc: self.loc(start),
-        name: name,
-        directives: directives,
-      }));
+    if !self.check_name("on") {
+      if let Some(name_value) = self.next_if_any_name() {
+        let name = ast::Name {
+          loc: self.loc(start_after_ellipsis),
+          value: name_value,
+        };
+        let directives = try!(self.parse_directives());
+        return Ok(ast::Selection::FragmentSpread(ast::FragmentSpread {
+          loc: self.loc(start),
+          name: name,
+          directives: directives,
+        }));
+      }
     }
 
     let mut type_condition: Option<ast::NamedType> = None;
