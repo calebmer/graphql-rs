@@ -14,7 +14,7 @@ pub struct Position {
 
 /// Contains a range of UTF-8 character offsets and token references that
 /// identify the region of the source from which the AST derived.
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Location {
   /// The character position at which this Node begins.
   pub start: Position,

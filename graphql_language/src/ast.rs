@@ -21,7 +21,7 @@ macro_rules! node_struct {
       $($field_name:ident: $field_type:ty,)*
     }
   ) => (
-    #[derive(PartialEq, Debug)]
+    #[derive(Clone, PartialEq, Debug)]
     pub struct $struct_name {
       pub loc: Option<Location>,
       $(
@@ -47,7 +47,7 @@ macro_rules! node_enum {
       $($variant_name:ident($variant_type:ty),)*
     }
   ) => (
-    #[derive(PartialEq, Debug)]
+    #[derive(Clone, PartialEq, Debug)]
     pub enum $enum_name {
       $(
         $variant_name($variant_type),
@@ -89,7 +89,7 @@ node_struct! {
 // Because we have some expiremental non-spec additions to this `Definition`
 // node we don’t use the `node_enum!` macro and instead manually provide the
 // necessary implementations.
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Definition {
   Operation(OperationDefinition),
   Fragment(FragmentDefinition),
@@ -122,7 +122,7 @@ node_struct! {
   }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum OperationType {
   Query,
   Mutation,

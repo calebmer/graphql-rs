@@ -619,10 +619,10 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let start = self.pos();
 
     if self.check(&TokenKind::LeftBracket) {
-      Ok(ast::Value::List(try!(self.parse_list())))
+      Ok(ast::Value::List(try!(self.parse_list_value())))
     }
     else if self.check(&TokenKind::LeftBrace) {
-      Ok(ast::Value::Object(try!(self.parse_object())))
+      Ok(ast::Value::Object(try!(self.parse_object_value())))
     }
     else if self.check_name("null") {
       self.next();
@@ -679,7 +679,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   ///  - [ ]
   ///  - [ Value[?Const]+ ]
   /// ```
-  fn parse_list(&mut self) -> Result<ast::ListValue, Error> {
+  fn parse_list_value(&mut self) -> Result<ast::ListValue, Error> {
     let start = self.pos();
     let values = try!(self.many(
       &TokenKind::LeftBracket,
@@ -698,7 +698,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   ///  - { }
   ///  - { ObjectField[?Const]+ }
   /// ```
-  fn parse_object(&mut self) -> Result<ast::ObjectValue, Error> {
+  fn parse_object_value(&mut self) -> Result<ast::ObjectValue, Error> {
     let start = self.pos();
     let fields = try!(self.many(
       &TokenKind::LeftBrace,

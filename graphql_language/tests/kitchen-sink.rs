@@ -1,17 +1,75 @@
 extern crate graphql_language;
 
-use std::io::prelude::*;
-use std::fs::File;
-use graphql_language::parse_without_location;
+use graphql_language::{parse_without_location, print};
 use graphql_language::ast::*;
 
+const SOURCE: &'static str =
+"query queryName($foo: ComplexType, $site: Site = MOBILE) {
+  whoever123is: node(id: [123, 456]) {
+    id
+    ... on User @defer {
+      field2 {
+        id
+        alias: field1(first: 10, after: $foo) @include(if: $foo) {
+          id
+          ...frag
+        }
+      }
+    }
+    ... @skip(unless: $foo) {
+      id
+    }
+    ... {
+      id
+    }
+  }
+}
+
+mutation likeStory {
+  like(story: 123) @defer {
+    story {
+      id
+    }
+  }
+}
+
+query StoryLikeSubscription($input: StoryLikeSubscribeInput) {
+  storyLikeSubscribe(input: $input) {
+    story {
+      likers {
+        count
+      }
+      likeSentence {
+        text
+      }
+    }
+  }
+}
+
+fragment frag on Friend {
+  foo(size: $size, bar: $b, obj: {key: \"value\"})
+}
+
+{
+  unnamed(truthy: true, falsey: false, nullish: null)
+  query
+}
+";
+
 #[test]
-fn parse_kitchen_sink() {
-  let mut file = File::open("tests/fixtures/kitchen-sink.graphql").unwrap();
-  let mut string = String::new();
-  file.read_to_string(&mut string).unwrap();
-  let ast = parse_without_location(string.chars());
-  assert_eq!(ast, Ok(Document {
+fn kitchen_sink_parse_and_print_2x() {
+  let parse1 = parse_without_location(SOURCE.chars()).unwrap();
+  let print1 = print(&parse1);
+  let parse2 = parse_without_location(print1.chars()).unwrap();
+  let print2 = print(&parse2);
+
+  assert_eq!(parse1, parse2);
+  assert_eq!(print1, print2);
+}
+
+#[test]
+fn kitchen_sink_parse_ast() {
+  let document = Document {
     loc: None,
     definitions: vec![
       Definition::Operation(OperationDefinition {
@@ -682,5 +740,8 @@ fn parse_kitchen_sink() {
         },
       }),
     ],
-  }));
+  };
+
+  assert_eq!(parse_without_location(SOURCE.chars()), Ok(document.clone()));
+  assert_eq!(print(&document), SOURCE);
 }
