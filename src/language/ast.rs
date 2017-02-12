@@ -2,26 +2,7 @@
 //!
 //! The root AST type is `Document`.
 
-use super::Position;
-
-/// Contains a range of UTF-8 character offsets and token references that
-/// identify the region of the source from which the AST derived.
-pub struct Location {
-  /// The character position at which this Node begins.
-  start: Position,
-  /// The character position at which this Node ends.
-  end: Position,
-}
-
-impl Location {
-  /// Creates a new location between these two bounds.
-  pub fn new(start: Position, end: Position) -> Self {
-    Location {
-      start: start,
-      end: end,
-    }
-  }
-}
+use super::Location;
 
 /// A node in the GraphQL AST represents any data structure or enumeration of
 /// data structure types.
@@ -30,12 +11,17 @@ pub trait Node {
   fn loc(&self) -> Option<&Location>;
 }
 
+/// Creates a node struct with all of the repetetive code that is required.
+///
+/// The goal is to make this macro look as close to an actual struct definition
+/// as possible.
 macro_rules! node_struct {
   (
     struct $struct_name:ident {
       $($field_name:ident: $field_type:ty,)*
     }
   ) => (
+    #[derive(PartialEq, Debug)]
     pub struct $struct_name {
       pub loc: Option<Location>,
       $(
@@ -51,12 +37,17 @@ macro_rules! node_struct {
   )
 }
 
+/// Creates a node enum with all of the repetetive code that is required.
+///
+/// The goal is to make this macro look as close to an actual enum definition
+/// as possible.
 macro_rules! node_enum {
   (
     enum $enum_name:ident {
       $($variant_name:ident($variant_type:ty),)*
     }
   ) => (
+    #[derive(PartialEq, Debug)]
     pub enum $enum_name {
       $(
         $variant_name($variant_type),
@@ -113,16 +104,18 @@ node_struct! {
   }
 }
 
+#[derive(PartialEq, Debug)]
 pub enum OperationType {
   Query,
   Mutation,
+  Subscription,
 }
 
 node_struct! {
   struct VariableDefinition {
     variable: Variable,
     typ: Type,
-    default_value: Value,
+    default_value: Option<Value>,
   }
 }
 
@@ -289,6 +282,15 @@ node_enum! {
   enum NullableType {
     Named(NamedType),
     List(ListType),
+  }
+}
+
+impl From<NullableType> for Type {
+  fn from(typ: NullableType) -> Type {
+    match typ {
+      NullableType::Named(named) => Type::Named(named),
+      NullableType::List(list) => Type::List(list),
+    }
   }
 }
 

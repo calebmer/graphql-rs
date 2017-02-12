@@ -3,10 +3,11 @@
 //! With this module you can get use the lexer to get GraphQL tokens from a
 //! source text, parse those tokens into an AST, and visit/mutate the AST.
 
+mod position;
 mod lexer;
 mod parser;
 
 pub mod ast;
 
-pub use self::lexer::{Position};
-// pub use self::parser::{parse};
+pub use self::position::{Position, Location};
+pub use self::parser::{parse, parse_without_location};

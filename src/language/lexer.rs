@@ -3,19 +3,7 @@ use std::num::{ParseIntError, ParseFloatError};
 use std::iter::Peekable;
 use std::str::FromStr;
 
-/// The position of a single character in a source document.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Position {
-  /// The 0-indexed position of the character. If the source document was an
-  /// array of characters, this would be the index position of that character.
-  pub index: usize,
-  /// The 1-indexed line on which this character lies. This number is helpful
-  /// when it comes to text editors. Used in conjunction with `column`.
-  pub line: usize,
-  /// The 1-indexed column on which this character lies. This number is helpful
-  /// when it comes to text editors. Used in conjunction with `line`.
-  pub column: usize,
-}
+use super::Position;
 
 /// Represents a range of characters representing a lexical token within a
 /// Source.
@@ -129,22 +117,17 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
     }
   }
 
-  /// Whether or not we are done turning the source character array into tokens.
-  pub fn is_done(&self) -> bool {
-    self.done
-  }
-
   /// The current position of our lexer in the source character iterator.
   pub fn pos(&self) -> Position {
     self.chars.pos
   }
 
   /// Returns a reference to the next token without advancing the iterator.
-  pub fn peek(&mut self) -> Option<&Result<Token, Error>> {
+  pub fn peek(&mut self) -> Option<Result<&Token, &Error>> {
     if self.peeked.is_none() {
       self.peeked = self.next();
     }
-    self.peeked.as_ref()
+    self.peeked.as_ref().map(Result::as_ref)
   }
 }
 
@@ -401,11 +384,12 @@ impl<I> Lexer<I> where I: Iterator<Item=char> {
         let start = self.chars.pos;
         let mut string = String::new();
         loop {
+          let last_pos = self.chars.pos;
           match self.chars.next() {
             // End the string if we see another double quote.
             Some('"') => return Ok(Some(Token::new(TokenKind::String(string), start, self.chars.pos))),
             // Error if there is a newline in the string.
-            Some('\n') => return Err(Error::UnterminatedString(self.chars.pos)),
+            Some('\n') => return Err(Error::UnterminatedString(last_pos)),
             // If the user is trying to escape something. Do some special
             // logic.
             Some('\\') => {
@@ -514,7 +498,7 @@ impl<I> Iterator for Chars<I> where I: Iterator<Item=char> {
         // column number. Otherwise just increment the column number.
         if c == '\n' {
           self.pos.line += 1;
-          self.pos.column = 1;
+          self.pos.column = 0;
         } else {
           self.pos.column += 1;
         }
@@ -531,7 +515,8 @@ impl<I> Iterator for Chars<I> where I: Iterator<Item=char> {
 #[cfg(test)]
 mod tests {
   use std::str::FromStr;
-  use super::{Lexer, Token, TokenKind, Error, Position};
+  use super::super::Position;
+  use super::{Lexer, Token, TokenKind, Error};
 
   /// Creates a `Position` value for a one line situation as is common in our
   /// tests. Takes the 0-indexed value and generates the column and line
@@ -589,7 +574,7 @@ mod tests {
   fn test_punctuator_comment_many() {
     assert_eq!(Lexer::new("# Hello, world!\n# This is another comment!".chars()).map(|result| result.unwrap()).collect::<Vec<Token>>(), vec![
       Token { kind: TokenKind::Comment(String::from(" Hello, world!")), start: Position { index: 0, line: 1, column: 1 }, end: Position { index: 14, line: 1, column: 15 } },
-      Token { kind: TokenKind::Comment(String::from(" This is another comment!")), start: Position { index: 16, line: 2, column: 2 }, end: Position { index: 41, line: 2, column: 27 } },
+      Token { kind: TokenKind::Comment(String::from(" This is another comment!")), start: Position { index: 16, line: 2, column: 1 }, end: Position { index: 41, line: 2, column: 26 } },
     ]);
   }
 
@@ -683,7 +668,7 @@ mod tests {
   #[test]
   fn test_string_error_newline() {
     assert_eq!(Lexer::new("\"Hello,\nworld!\"".chars()).map(|result| result.unwrap_err()).collect::<Vec<Error>>(), vec![
-      Error::UnterminatedString(Position { index: 7, line: 2, column: 1 }),
+      Error::UnterminatedString(Position { index: 6, line: 1, column: 7 }),
     ]);
   }
 
@@ -949,11 +934,11 @@ mod tests {
   #[test]
   fn test_lexer_peek() {
     let mut lexer = Lexer::new("{}".chars());
-    assert_eq!(lexer.peek(), Some(&Ok(Token::new(TokenKind::LeftBrace, pos1(0), pos1(0)))));
-    assert_eq!(lexer.peek(), Some(&Ok(Token::new(TokenKind::LeftBrace, pos1(0), pos1(0)))));
+    assert_eq!(lexer.peek(), Some(Ok(&Token::new(TokenKind::LeftBrace, pos1(0), pos1(0)))));
+    assert_eq!(lexer.peek(), Some(Ok(&Token::new(TokenKind::LeftBrace, pos1(0), pos1(0)))));
     assert_eq!(lexer.next(), Some(Ok(Token::new(TokenKind::LeftBrace, pos1(0), pos1(0)))));
-    assert_eq!(lexer.peek(), Some(&Ok(Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
-    assert_eq!(lexer.peek(), Some(&Ok(Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
+    assert_eq!(lexer.peek(), Some(Ok(&Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
+    assert_eq!(lexer.peek(), Some(Ok(&Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
     assert_eq!(lexer.next(), Some(Ok(Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
     assert_eq!(lexer.peek(), None);
     assert_eq!(lexer.peek(), None);
