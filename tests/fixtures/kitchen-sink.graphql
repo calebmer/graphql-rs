@@ -27,7 +27,7 @@ mutation likeStory {
   }
 }
 
-subscription StoryLikeSubscription($input: StoryLikeSubscribeInput) {
+query StoryLikeSubscription($input: StoryLikeSubscribeInput) {
   storyLikeSubscribe(input: $input) {
     story {
       likers {

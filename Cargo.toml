@@ -3,4 +3,9 @@ name = "graphql"
 version = "0.1.0"
 authors = ["Caleb Meredith <calebmeredith8@gmail.com>"]
 
+[features]
+default = []
+type_system = []
+subscriptions = []
+
 [dependencies]

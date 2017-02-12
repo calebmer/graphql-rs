@@ -79,20 +79,17 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// token’s kind matches the provided kind, and returns false if the kind does
   /// not match or we are at the ending. If it encounters an error, false will
   /// be returned.
-  pub fn check(&mut self, kind: TokenKind) -> bool {
+  fn check(&mut self, kind: &TokenKind) -> bool {
     match self.lexer.peek() {
-      Some(result) => match result {
-        Ok(ref token) => token.kind == kind,
-        Err(_) => false,
-      },
-      None => false,
+      Some(Ok(&Token { kind: ref token_kind, .. })) => token_kind == kind,
+      _ => false,
     }
   }
 
   /// Checks if the next token is a name token with the provided name string.
   /// With this method we won’t need to allocate an owned string and can use
   /// string references.
-  pub fn check_name(&mut self, name: &str) -> bool {
+  fn check_name(&mut self, name: &str) -> bool {
     match self.lexer.peek() {
       Some(result) => match result {
         Ok(ref token) => match token.kind {
@@ -119,7 +116,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   // Therefore `None` does not always mean the iterator has finished when
   // calling `next_if`! This method is useful with a pattern matched if
   // statement.
-  pub fn next_if(&mut self, kind: TokenKind) -> Option<Result<Token, Error>> {
+  fn next_if(&mut self, kind: &TokenKind) -> Option<Result<Token, Error>> {
     if self.check(kind) {
       self.next()
     } else {
@@ -130,7 +127,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// If the next token is a name token, we consume the token and return the
   /// name string. If the next token is not a name token, then we do not consume
   /// the next token.
-  pub fn next_if_any_name(&mut self) -> Option<String> {
+  fn next_if_any_name(&mut self) -> Option<String> {
     match self.lexer.peek() {
       Some(Ok(ref token)) => match token.kind {
         TokenKind::Name(_) => (),
@@ -149,7 +146,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
 
   /// If the next token is a name token with the exact name provided then `next`
   // will be called. Otherwise `None` will be returned.
-  pub fn next_if_name(&mut self, name: &str) -> bool {
+  fn next_if_name(&mut self, name: &str) -> bool {
     match self.lexer.peek() {
       Some(Ok(ref token)) => match token.kind {
         TokenKind::Name(ref name_ref) if name_ref == name => (),
@@ -178,9 +175,9 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
 
   /// Asserts that the next token has the kind we expect. If the next token does
   /// not have that kind then we return an unexpected error.
-  fn expect(&mut self, kind: TokenKind) -> Result<(), Error> {
+  fn expect(&mut self, kind: &TokenKind) -> Result<(), Error> {
     match self.next() {
-      Some(Ok(ref token)) if token.kind == kind => Ok(()),
+      Some(Ok(Token { kind: ref token_kind, .. })) if token_kind == kind => Ok(()),
       Some(Ok(token)) => Err(Error::UnexpectedToken(token)),
       Some(Err(error)) => Err(error),
       None => Err(Error::UnexpectedEnding(self.pos())),
@@ -197,6 +194,35 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
       Some(Err(error)) => Err(error),
       None => Err(Error::UnexpectedEnding(self.pos())),
     }
+  }
+
+  /// Parse a list of items between two tokens. If the last argument is true
+  /// then there may be no items in the list. If the last argument is false then
+  /// a vector with a length of zero may be returned.
+  fn many<T>(
+    &mut self,
+    start: &TokenKind,
+    parse_fn: fn(&mut Parser<I>) -> Result<T, Error>,
+    end: &TokenKind,
+    allow_none: bool,
+  ) -> Result<Vec<T>, Error> {
+    let mut items: Vec<T> = vec![];
+
+    try!(self.expect(start));
+
+    loop {
+      if let Some(token) = self.next_if(end) {
+        // If there were no items, and we are not allowing no items then we need
+        // to return an unexpected token error.
+        if !allow_none && items.len() == 0 {
+          return Err(Error::UnexpectedToken(try!(token)));
+        }
+        break;
+      }
+      items.push(try!(parse_fn(self)));
+    }
+
+    Ok(items)
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -250,42 +276,32 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// ```
   fn parse_definition(&mut self) -> Result<ast::Definition, Error> {
     if {
-      self.check(TokenKind::LeftBrace) ||
+      self.check(&TokenKind::LeftBrace) ||
       self.check_name("query") ||
       self.check_name("mutation") ||
       self.check_name("subscription")
     } {
-      self.parse_operation_definition().map(ast::Definition::Operation)
+      Ok(ast::Definition::Operation(try!(self.parse_operation_definition())))
     }
     else if self.check_name("fragment") {
-      self.parse_fragment_definition().map(ast::Definition::Fragment)
+      Ok(ast::Definition::Fragment(try!(self.parse_fragment_definition())))
     }
-    else if self.check_name("schema") {
-      unimplemented!();
-    }
-    else if self.check_name("scalar") {
-      unimplemented!();
-    }
-    else if self.check_name("type") {
-      unimplemented!();
-    }
-    else if self.check_name("interface") {
-      unimplemented!();
-    }
-    else if self.check_name("union") {
-      unimplemented!();
-    }
-    else if self.check_name("enum") {
-      unimplemented!();
-    }
-    else if self.check_name("input") {
-      unimplemented!();
-    }
-    else if self.check_name("extend") {
-      unimplemented!();
-    }
-    else if self.check_name("directive") {
-      unimplemented!();
+    else if {
+      self.check_name("schema") ||
+      self.check_name("scalar") ||
+      self.check_name("type") ||
+      self.check_name("interface") ||
+      self.check_name("union") ||
+      self.check_name("enum") ||
+      self.check_name("input") ||
+      self.check_name("extend") ||
+      self.check_name("directive")
+    } {
+      #[cfg(feature = "type_system")]
+      return Ok(ast::Definition::TypeSystem(try!(self.parse_type_system_definition())));
+
+      #[cfg(not(feature = "type_system"))]
+      return Err(self.unexpected());
     }
     else {
       Err(self.unexpected())
@@ -304,9 +320,8 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let mut variable_definitions: Vec<ast::VariableDefinition> = vec![];
     let mut directives: Vec<ast::Directive> = vec![];
 
-    if !self.check(TokenKind::LeftBrace) {
+    if !self.check(&TokenKind::LeftBrace) {
       operation = try!(self.parse_operation_type());
-
       {
         let start = self.pos();
         if let Some(name_string) = self.next_if_any_name() {
@@ -316,8 +331,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
           });
         }
       }
-
-      variable_definitions = if self.check(TokenKind::LeftParen) { try!(self.parse_variable_definitions()) } else { vec![] };
+      variable_definitions = if self.check(&TokenKind::LeftParen) { try!(self.parse_variable_definitions()) } else { vec![] };
       directives = try!(self.parse_directives());
     }
 
@@ -340,7 +354,11 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     match self.next_if_any_name().as_ref().map(|x| &**x) {
       Some("query") => Ok(ast::OperationType::Query),
       Some("mutation") => Ok(ast::OperationType::Mutation),
+
+      // Subscriptions are an expiremental non-spec addition.
+      #[cfg(feature = "subscriptions")]
       Some("subscription") => Ok(ast::OperationType::Subscription),
+
       _ => Err(self.unexpected()),
     }
   }
@@ -349,25 +367,12 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// VariableDefinitions : ( VariableDefinition+ )
   /// ```
   fn parse_variable_definitions(&mut self) -> Result<Vec<ast::VariableDefinition>, Error> {
-    if let Some(_) = self.next_if(TokenKind::LeftParen) {
-      let mut variable_definitions = vec![];
-
-      loop {
-        if let Some(token) = self.next_if(TokenKind::RightParen) {
-          // If there were no variable definitions then we need to return an
-          // error.
-          if variable_definitions.len() < 1 {
-            return Err(Error::UnexpectedToken(try!(token)));
-          }
-          break;
-        }
-        variable_definitions.push(try!(self.parse_variable_definition()));
-      }
-
-      Ok(variable_definitions)
-    } else {
-      Err(self.unexpected())
-    }
+    self.many(
+      &TokenKind::LeftParen,
+      Parser::parse_variable_definition,
+      &TokenKind::RightParen,
+      false,
+    )
   }
 
   /// ```txt
@@ -375,21 +380,16 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// ```
   fn parse_variable_definition(&mut self) -> Result<ast::VariableDefinition, Error> {
     let start = self.pos();
-
     let variable = try!(self.parse_variable());
-
-    try!(self.expect(TokenKind::Colon));
-
+    try!(self.expect(&TokenKind::Colon));
     let typ = try!(self.parse_type_reference());
-
     let default_value = {
-      if let Some(_) = self.next_if(TokenKind::Equals) {
+      if let Some(_) = self.next_if(&TokenKind::Equals) {
         Some(try!(self.parse_value_literal()))
       } else {
         None
       }
     };
-
     Ok(ast::VariableDefinition {
       loc: self.loc(start),
       variable: variable,
@@ -403,11 +403,8 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// ```
   fn parse_variable(&mut self) -> Result<ast::Variable, Error> {
     let start = self.pos();
-
-    try!(self.expect(TokenKind::Dollar));
-
+    try!(self.expect(&TokenKind::Dollar));
     let name = try!(self.parse_name());
-
     Ok(ast::Variable {
       loc: self.loc(start),
       name: name,
@@ -419,21 +416,12 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// ```
   fn parse_selection_set(&mut self) -> Result<ast::SelectionSet, Error> {
     let start = self.pos();
-    let mut selections: Vec<ast::Selection> = vec![];
-
-    try!(self.expect(TokenKind::LeftBrace));
-
-    loop {
-      if let Some(token) = self.next_if(TokenKind::RightBrace) {
-        // If there were no selections then we need to return an error.
-        if selections.len() < 1 {
-          return Err(Error::UnexpectedToken(try!(token)));
-        }
-        break;
-      }
-      selections.push(try!(self.parse_selection()));
-    }
-
+    let selections = try!(self.many(
+      &TokenKind::LeftBrace,
+      Parser::parse_selection,
+      &TokenKind::RightBrace,
+      false,
+    ));
     Ok(ast::SelectionSet {
       loc: self.loc(start),
       selections: selections,
@@ -447,7 +435,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   ///   - InlineFragment
   /// ```
   fn parse_selection(&mut self) -> Result<ast::Selection, Error> {
-    if self.check(TokenKind::Ellipsis) {
+    if self.check(&TokenKind::Ellipsis) {
       self.parse_fragment()
     } else {
       self.parse_field().map(ast::Selection::Field)
@@ -465,16 +453,16 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let mut alias: Option<ast::Name> = None;
     let mut name = try!(self.parse_name());
 
-    if let Some(_) = self.next_if(TokenKind::Colon) {
+    if let Some(_) = self.next_if(&TokenKind::Colon) {
       alias = Some(name);
       name = try!(self.parse_name());
     }
 
-    let arguments = if self.check(TokenKind::LeftParen) { try!(self.parse_arguments()) } else { vec![] };
+    let arguments = if self.check(&TokenKind::LeftParen) { try!(self.parse_arguments()) } else { vec![] };
     let directives = try!(self.parse_directives());
 
     let selection_set = {
-      if self.check(TokenKind::LeftBrace) {
+      if self.check(&TokenKind::LeftBrace) {
         Some(try!(self.parse_selection_set()))
       } else {
         None
@@ -495,18 +483,12 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// Arguments : ( Argument + )
   /// ```
   fn parse_arguments(&mut self) -> Result<Vec<ast::Argument>, Error> {
-    let mut arguments: Vec<ast::Argument> = vec![];
-    try!(self.expect(TokenKind::LeftParen));
-    loop {
-      if let Some(token) = self.next_if(TokenKind::RightParen) {
-        if arguments.len() < 1 {
-          return Err(Error::UnexpectedToken(try!(token)));
-        }
-        break;
-      }
-      arguments.push(try!(self.parse_argument()));
-    }
-    Ok(arguments)
+    Ok(try!(self.many(
+      &TokenKind::LeftParen,
+      Parser::parse_argument,
+      &TokenKind::RightParen,
+      false,
+    )))
   }
 
   /// ```txt
@@ -515,7 +497,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   fn parse_argument(&mut self) -> Result<ast::Argument, Error> {
     let start = self.pos();
     let name = try!(self.parse_name());
-    try!(self.expect(TokenKind::Colon));
+    try!(self.expect(&TokenKind::Colon));
     let value = try!(self.parse_value_literal());
     Ok(ast::Argument {
       loc: self.loc(start),
@@ -539,7 +521,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// ```
   fn parse_fragment(&mut self) -> Result<ast::Selection, Error> {
     let start = self.pos();
-    try!(self.expect(TokenKind::Ellipsis));
+    try!(self.expect(&TokenKind::Ellipsis));
     let start_after_ellipsis = self.pos();
 
     // If there is a name to eat then this is a fragment spread.
@@ -636,10 +618,10 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   fn parse_value_literal(&mut self) -> Result<ast::Value, Error> {
     let start = self.pos();
 
-    if self.check(TokenKind::LeftBracket) {
+    if self.check(&TokenKind::LeftBracket) {
       Ok(ast::Value::List(try!(self.parse_list())))
     }
-    else if self.check(TokenKind::LeftBrace) {
+    else if self.check(&TokenKind::LeftBrace) {
       Ok(ast::Value::Object(try!(self.parse_object())))
     }
     else if self.check_name("null") {
@@ -662,7 +644,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
         value: false,
       }))
     }
-    else if self.check(TokenKind::Dollar) {
+    else if self.check(&TokenKind::Dollar) {
       Ok(ast::Value::Variable(try!(self.parse_variable())))
     }
     else {
@@ -699,14 +681,12 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// ```
   fn parse_list(&mut self) -> Result<ast::ListValue, Error> {
     let start = self.pos();
-    let mut values: Vec<ast::Value> = vec![];
-    try!(self.expect(TokenKind::LeftBracket));
-    loop {
-      if self.next_if(TokenKind::RightBracket).is_some() {
-        break;
-      }
-      values.push(try!(self.parse_value_literal()));
-    }
+    let values = try!(self.many(
+      &TokenKind::LeftBracket,
+      Parser::parse_value_literal,
+      &TokenKind::RightBracket,
+      true,
+    ));
     Ok(ast::ListValue {
       loc: self.loc(start),
       values: values,
@@ -720,14 +700,12 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// ```
   fn parse_object(&mut self) -> Result<ast::ObjectValue, Error> {
     let start = self.pos();
-    let mut fields: Vec<ast::ObjectField> = vec![];
-    try!(self.expect(TokenKind::LeftBrace));
-    loop {
-      if self.next_if(TokenKind::RightBrace).is_some() {
-        break;
-      }
-      fields.push(try!(self.parse_object_field()));
-    }
+    let fields = try!(self.many(
+      &TokenKind::LeftBrace,
+      Parser::parse_object_field,
+      &TokenKind::RightBrace,
+      true,
+    ));
     Ok(ast::ObjectValue {
       loc: self.loc(start),
       fields: fields,
@@ -740,7 +718,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   fn parse_object_field(&mut self) -> Result<ast::ObjectField, Error> {
     let start = self.pos();
     let name = try!(self.parse_name());
-    try!(self.expect(TokenKind::Colon));
+    try!(self.expect(&TokenKind::Colon));
     let value = try!(self.parse_value_literal());
     Ok(ast::ObjectField {
       loc: self.loc(start),
@@ -763,7 +741,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   fn parse_directives(&mut self) -> Result<Vec<ast::Directive>, Error> {
     let mut directives: Vec<ast::Directive> = vec![];
     loop {
-      if !self.check(TokenKind::At) {
+      if !self.check(&TokenKind::At) {
         break;
       }
       directives.push(try!(self.parse_directive()));
@@ -776,9 +754,9 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   /// ```
   fn parse_directive(&mut self) -> Result<ast::Directive, Error> {
     let start = self.pos();
-    try!(self.expect(TokenKind::At));
+    try!(self.expect(&TokenKind::At));
     let name = try!(self.parse_name());
-    let arguments = if self.check(TokenKind::LeftParen) { try!(self.parse_arguments()) } else { vec![] };
+    let arguments = if self.check(&TokenKind::LeftParen) { try!(self.parse_arguments()) } else { vec![] };
     Ok(ast::Directive {
       loc: self.loc(start),
       name: name,
@@ -801,9 +779,9 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
 
     let nullable_type = {
       // If we hit a left bracket, this is likely an array type.
-      if let Some(_) = self.next_if(TokenKind::LeftBracket) {
+      if let Some(_) = self.next_if(&TokenKind::LeftBracket) {
         let typ = try!(self.parse_type_reference());
-        try!(self.expect(TokenKind::RightBracket));
+        try!(self.expect(&TokenKind::RightBracket));
         ast::NullableType::List(ast::ListType {
           loc: self.loc(start),
           typ: Box::new(typ),
@@ -816,7 +794,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     };
 
     // If we have a bang at the end, this is a non-null type.
-    if let Some(_) = self.next_if(TokenKind::Bang) {
+    if let Some(_) = self.next_if(&TokenKind::Bang) {
       Ok(ast::Type::NonNull(ast::NonNullType {
         loc: self.loc(start),
         typ: Box::new(nullable_type),
@@ -838,6 +816,383 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
       loc: self.loc(start),
       name: name,
     })
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Type System Definition
+////////////////////////////////////////////////////////////////////////////////
+//
+// The type system AST extension is an experimental non-spec addition.
+#[cfg(feature = "type_system")]
+impl<I> Parser<I> where I: Iterator<Item=char> {
+  /// ```txt
+  /// TypeSystemDefinition :
+  ///   - SchemaDefinition
+  ///   - TypeDefinition
+  ///   - TypeExtensionDefinition
+  ///   - DirectiveDefinition
+  ///
+  /// TypeDefinition :
+  ///   - ScalarTypeDefinition
+  ///   - ObjectTypeDefinition
+  ///   - InterfaceTypeDefinition
+  ///   - UnionTypeDefinition
+  ///   - EnumTypeDefinition
+  ///   - InputObjectTypeDefinition
+  /// ```
+  fn parse_type_system_definition(&mut self) -> Result<ast::TypeSystemDefinition, Error> {
+    if self.check_name("schema") {
+      Ok(ast::TypeSystemDefinition::Schema(try!(self.parse_schema_definition())))
+    }
+    else if self.check_name("scalar") {
+      Ok(ast::TypeSystemDefinition::Type(ast::TypeDefinition::Scalar(try!(self.parse_scalar_type_definition()))))
+    }
+    else if self.check_name("type") {
+      Ok(ast::TypeSystemDefinition::Type(ast::TypeDefinition::Object(try!(self.parse_object_type_definition()))))
+    }
+    else if self.check_name("interface") {
+      Ok(ast::TypeSystemDefinition::Type(ast::TypeDefinition::Interface(try!(self.parse_interface_type_definition()))))
+    }
+    else if self.check_name("union") {
+      Ok(ast::TypeSystemDefinition::Type(ast::TypeDefinition::Union(try!(self.parse_union_type_definition()))))
+    }
+    else if self.check_name("enum") {
+      Ok(ast::TypeSystemDefinition::Type(ast::TypeDefinition::Enum(try!(self.parse_enum_type_definition()))))
+    }
+    else if self.check_name("input") {
+      Ok(ast::TypeSystemDefinition::Type(ast::TypeDefinition::InputObject(try!(self.parse_input_object_type_definition()))))
+    }
+    else if self.check_name("extend") {
+      Ok(ast::TypeSystemDefinition::TypeExtension(try!(self.parse_type_extension_definition())))
+    }
+    else if self.check_name("directive") {
+      Ok(ast::TypeSystemDefinition::Directive(try!(self.parse_directive_definition())))
+    }
+    else {
+      Err(self.unexpected())
+    }
+  }
+
+  /// ```txt
+  /// SchemaDefinition : schema Directives? { OperationTypeDefinition+ }
+  /// ```
+  fn parse_schema_definition(&mut self) -> Result<ast::SchemaDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("schema"));
+    let directives = try!(self.parse_directives());
+    let operation_types = try!(self.many(
+      &TokenKind::LeftBrace,
+      Parser::parse_operation_type_definition,
+      &TokenKind::RightBrace,
+      false,
+    ));
+    Ok(ast::SchemaDefinition {
+      loc: self.loc(start),
+      directives: directives,
+      operation_types: operation_types,
+    })
+  }
+
+  /// ```txt
+  /// OperationTypeDefinition : OperationType : NamedType
+  /// ```
+  fn parse_operation_type_definition(&mut self) -> Result<ast::OperationTypeDefinition, Error> {
+    let start = self.pos();
+    let operation = try!(self.parse_operation_type());
+    try!(self.expect(&TokenKind::Colon));
+    let typ = try!(self.parse_named_type());
+    Ok(ast::OperationTypeDefinition {
+      loc: self.loc(start),
+      operation: operation,
+      typ: typ,
+    })
+  }
+
+  /// ```txt
+  /// ScalarTypeDefinition : scalar Name Directives?
+  /// ```
+  fn parse_scalar_type_definition(&mut self) -> Result<ast::ScalarTypeDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("scalar"));
+    let name = try!(self.parse_name());
+    let directives = try!(self.parse_directives());
+    Ok(ast::ScalarTypeDefinition {
+      loc: self.loc(start),
+      name: name,
+      directives: directives,
+    })
+  }
+
+  /// ```txt
+  /// ObjectTypeDefinition :
+  ///   - type Name ImplementsInterfaces? Directives? { FieldDefinition+ }
+  /// ```
+  fn parse_object_type_definition(&mut self) -> Result<ast::ObjectTypeDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("type"));
+    let name = try!(self.parse_name());
+    let interfaces = if self.check_name("implements") { try!(self.parse_implements_interfaces()) } else { vec![] };
+    let directives = try!(self.parse_directives());
+    let fields = try!(self.many(
+      &TokenKind::LeftBrace,
+      Parser::parse_field_definition,
+      &TokenKind::RightBrace,
+      false,
+    ));
+    Ok(ast::ObjectTypeDefinition {
+      loc: self.loc(start),
+      name: name,
+      interfaces: interfaces,
+      directives: directives,
+      fields: fields,
+    })
+  }
+
+  /// ```txt
+  /// ImplementsInterfaces : implements NamedType+
+  /// ```
+  fn parse_implements_interfaces(&mut self) -> Result<Vec<ast::NamedType>, Error> {
+    try!(self.expect_name("implements"));
+    let mut types: Vec<ast::NamedType> = vec![];
+    loop {
+      let start = self.pos();
+      if let Some(name) = self.next_if_any_name() {
+        types.push(ast::NamedType {
+          loc: self.loc(start),
+          name: ast::Name {
+            loc: self.loc(start),
+            value: name,
+          },
+        });
+      } else {
+        break;
+      }
+    }
+    Ok(types)
+  }
+
+  /// ```txt
+  /// FieldDefinition : Name ArgumentsDefinition? : Type Directives?
+  /// ```
+  fn parse_field_definition(&mut self) -> Result<ast::FieldDefinition, Error> {
+    let start = self.pos();
+    let name = try!(self.parse_name());
+    let arguments = if self.check(&TokenKind::LeftParen) { try!(self.parse_argument_definitions()) } else { vec![] };
+    try!(self.expect(&TokenKind::Colon));
+    let typ = try!(self.parse_type_reference());
+    let directives = try!(self.parse_directives());
+    Ok(ast::FieldDefinition {
+      loc: self.loc(start),
+      name: name,
+      arguments: arguments,
+      typ: typ,
+      directives: directives,
+    })
+  }
+
+  /// ```txt
+  /// ArgumentsDefinition : ( InputValueDefinition+ )
+  /// ```
+  fn parse_argument_definitions(&mut self) -> Result<Vec<ast::InputValueDefinition>, Error> {
+    self.many(
+      &TokenKind::LeftParen,
+      Parser::parse_input_value_definition,
+      &TokenKind::RightParen,
+      false,
+    )
+  }
+
+  /// ```txt
+  /// InputValueDefinition : Name : Type DefaultValue? Directives?
+  /// ```
+  fn parse_input_value_definition(&mut self) -> Result<ast::InputValueDefinition, Error> {
+    let start = self.pos();
+    let name = try!(self.parse_name());
+    try!(self.expect(&TokenKind::Colon));
+    let typ = try!(self.parse_type_reference());
+    let default_value = {
+      if let Some(_) = self.next_if(&TokenKind::Equals) {
+        Some(try!(self.parse_value_literal()))
+      } else {
+        None
+      }
+    };
+    let directives = try!(self.parse_directives());
+    Ok(ast::InputValueDefinition {
+      loc: self.loc(start),
+      name: name,
+      typ: typ,
+      default_value: default_value,
+      directives: directives,
+    })
+  }
+
+  /// ```txt
+  /// InterfaceTypeDefinition : interface Name Directives? { FieldDefinition+ }
+  /// ```
+  fn parse_interface_type_definition(&mut self) -> Result<ast::InterfaceTypeDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("interface"));
+    let name = try!(self.parse_name());
+    let directives = try!(self.parse_directives());
+    let fields = try!(self.many(
+      &TokenKind::LeftBrace,
+      Parser::parse_field_definition,
+      &TokenKind::RightBrace,
+      false,
+    ));
+    Ok(ast::InterfaceTypeDefinition {
+      loc: self.loc(start),
+      name: name,
+      directives: directives,
+      fields: fields,
+    })
+  }
+
+  /// ```txt
+  /// UnionTypeDefinition : union Name Directives? = UnionMembers
+  /// ```
+  fn parse_union_type_definition(&mut self) -> Result<ast::UnionTypeDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("union"));
+    let name = try!(self.parse_name());
+    let directives = try!(self.parse_directives());
+    try!(self.expect(&TokenKind::Equals));
+    let types = try!(self.parse_union_members());
+    Ok(ast::UnionTypeDefinition {
+      loc: self.loc(start),
+      name: name,
+      directives: directives,
+      types: types,
+    })
+  }
+
+  /// ```txt
+  /// UnionMembers :
+  ///   - NamedType
+  ///   - UnionMembers | NamedType
+  /// ```
+  fn parse_union_members(&mut self) -> Result<Vec<ast::NamedType>, Error> {
+    let mut members: Vec<ast::NamedType> = vec![];
+    loop {
+      members.push(try!(self.parse_named_type()));
+      // If the next character is not a pipe then break out of the loop.
+      if !self.check(&TokenKind::Pipe) {
+        break;
+      }
+    }
+    Ok(members)
+  }
+
+  /// ```txt
+  /// EnumTypeDefinition : enum Name Directives? { EnumValueDefinition+ }
+  /// ```
+  fn parse_enum_type_definition(&mut self) -> Result<ast::EnumTypeDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("enum"));
+    let name = try!(self.parse_name());
+    let directives = try!(self.parse_directives());
+    let values = try!(self.many(
+      &TokenKind::LeftBrace,
+      Parser::parse_enum_value_definition,
+      &TokenKind::RightBrace,
+      false,
+    ));
+    Ok(ast::EnumTypeDefinition {
+      loc: self.loc(start),
+      name: name,
+      directives: directives,
+      values: values,
+    })
+  }
+
+  /// ```txt
+  /// EnumValueDefinition : EnumValue Directives?
+  ///
+  /// EnumValue : Name
+  /// ```
+  fn parse_enum_value_definition(&mut self) -> Result<ast::EnumValueDefinition, Error> {
+    let start = self.pos();
+    let name = try!(self.parse_name());
+    let directives = try!(self.parse_directives());
+    Ok(ast::EnumValueDefinition {
+      loc: self.loc(start),
+      name: name,
+      directives: directives,
+    })
+  }
+
+  /// ```txt
+  /// InputObjectTypeDefinition : input Name Directives? { InputValueDefinition+ }
+  /// ```
+  fn parse_input_object_type_definition(&mut self) -> Result<ast::InputObjectTypeDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("input"));
+    let name = try!(self.parse_name());
+    let directives = try!(self.parse_directives());
+    let fields = try!(self.many(
+      &TokenKind::LeftBrace,
+      Parser::parse_input_value_definition,
+      &TokenKind::RightBrace,
+      false,
+    ));
+    Ok(ast::InputObjectTypeDefinition {
+      loc: self.loc(start),
+      name: name,
+      directives: directives,
+      fields: fields,
+    })
+  }
+
+  /// ```txt
+  /// TypeExtensionDefinition : extend ObjectTypeDefinition
+  /// ```
+  fn parse_type_extension_definition(&mut self) -> Result<ast::TypeExtensionDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("extend"));
+    let definition = try!(self.parse_object_type_definition());
+    Ok(ast::TypeExtensionDefinition {
+      loc: self.loc(start),
+      definition: definition,
+    })
+  }
+
+  /// ```txt
+  /// DirectiveDefinition :
+  ///   - directive @ Name ArgumentsDefinition? on DirectiveLocations
+  /// ```
+  fn parse_directive_definition(&mut self) -> Result<ast::DirectiveDefinition, Error> {
+    let start = self.pos();
+    try!(self.expect_name("directive"));
+    try!(self.expect(&TokenKind::At));
+    let name = try!(self.parse_name());
+    let arguments = if self.check(&TokenKind::LeftParen) { try!(self.parse_argument_definitions()) } else { vec![] };
+    try!(self.expect_name("on"));
+    let locations = try!(self.parse_directive_locations());
+    Ok(ast::DirectiveDefinition {
+      loc: self.loc(start),
+      name: name,
+      arguments: arguments,
+      locations: locations,
+    })
+  }
+
+  /// ```txt
+  /// DirectiveLocations :
+  ///   - Name
+  ///   - DirectiveLocations | Name
+  /// ```
+  fn parse_directive_locations(&mut self) -> Result<Vec<ast::Name>, Error> {
+    let mut locations: Vec<ast::Name> = vec![];
+    loop {
+      locations.push(try!(self.parse_name()));
+      // If the next character is not a pipe then break out of the loop.
+      if !self.check(&TokenKind::Pipe) {
+        break;
+      }
+    }
+    Ok(locations)
   }
 }
 
@@ -880,7 +1235,6 @@ mod tests {
     assert_parse_error!("{  ", Error::UnexpectedEnding(pos1(2)));
     assert_parse_error!("query {}", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(7), pos1(7))));
     assert_parse_error!("mutation {}", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(10), pos1(10))));
-    assert_parse_error!("subscription {}", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(14), pos1(14))));
     assert_parse_error!("{ foo {} }", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(7), pos1(7))));
   }
 
@@ -897,7 +1251,6 @@ mod tests {
   fn test_variable_definitions_empty() {
     assert_parse_error!("query ()", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(7), pos1(7))));
     assert_parse_error!("mutation ()", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(10), pos1(10))));
-    assert_parse_error!("subscription ()", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(14), pos1(14))));
     assert_parse_error!("query (  )", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(9), pos1(9))));
   }
 

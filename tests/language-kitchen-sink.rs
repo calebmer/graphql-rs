@@ -402,7 +402,7 @@ fn parse_kitchen_sink() {
       }),
       Definition::Operation(OperationDefinition {
         loc: None,
-        operation: OperationType::Subscription,
+        operation: OperationType::Query,
         name: Some(Name {
           loc: None,
           value: String::from("StoryLikeSubscription"),

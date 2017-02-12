@@ -17,7 +17,7 @@ pub trait Node {
 /// as possible.
 macro_rules! node_struct {
   (
-    struct $struct_name:ident {
+    pub struct $struct_name:ident {
       $($field_name:ident: $field_type:ty,)*
     }
   ) => (
@@ -43,7 +43,7 @@ macro_rules! node_struct {
 /// as possible.
 macro_rules! node_enum {
   (
-    enum $enum_name:ident {
+    pub enum $enum_name:ident {
       $($variant_name:ident($variant_type:ty),)*
     }
   ) => (
@@ -71,7 +71,7 @@ macro_rules! node_enum {
 ////////////////////////////////////////////////////////////////////////////////
 
 node_struct! {
-  struct Name {
+  pub struct Name {
     value: String,
   }
 }
@@ -81,21 +81,39 @@ node_struct! {
 ////////////////////////////////////////////////////////////////////////////////
 
 node_struct! {
-  struct Document {
+  pub struct Document {
     definitions: Vec<Definition>,
   }
 }
 
-node_enum! {
-  enum Definition {
-    Operation(OperationDefinition),
-    Fragment(FragmentDefinition),
-    TypeSystem(TypeSystemDefinition),
+// Because we have some expiremental non-spec additions to this `Definition`
+// node we don’t use the `node_enum!` macro and instead manually provide the
+// necessary implementations.
+#[derive(PartialEq, Debug)]
+pub enum Definition {
+  Operation(OperationDefinition),
+  Fragment(FragmentDefinition),
+
+  // The type system AST extension is an experimental non-spec addition.
+  #[cfg(feature = "type_system")]
+  TypeSystem(TypeSystemDefinition),
+}
+
+impl Node for Definition {
+  fn loc(&self) -> Option<&Location> {
+    match *self {
+      Definition::Operation(ref node) => node.loc(),
+      Definition::Fragment(ref node) => node.loc(),
+
+      // The type system AST extension is an experimental non-spec addition.
+      #[cfg(feature = "type_system")]
+      Definition::TypeSystem(ref node) => node.loc(),
+    }
   }
 }
 
 node_struct! {
-  struct OperationDefinition {
+  pub struct OperationDefinition {
     operation: OperationType,
     name: Option<Name>,
     variable_definitions: Vec<VariableDefinition>,
@@ -108,11 +126,14 @@ node_struct! {
 pub enum OperationType {
   Query,
   Mutation,
+
+  // Subscriptions are an expiremental non-spec addition.
+  #[cfg(feature = "subscriptions")]
   Subscription,
 }
 
 node_struct! {
-  struct VariableDefinition {
+  pub struct VariableDefinition {
     variable: Variable,
     typ: Type,
     default_value: Option<Value>,
@@ -120,19 +141,19 @@ node_struct! {
 }
 
 node_struct! {
-  struct Variable {
+  pub struct Variable {
     name: Name,
   }
 }
 
 node_struct! {
-  struct SelectionSet {
+  pub struct SelectionSet {
     selections: Vec<Selection>,
   }
 }
 
 node_enum! {
-  enum Selection {
+  pub enum Selection {
     Field(Field),
     FragmentSpread(FragmentSpread),
     InlineFragment(InlineFragment),
@@ -140,7 +161,7 @@ node_enum! {
 }
 
 node_struct! {
-  struct Field {
+  pub struct Field {
     alias: Option<Name>,
     name: Name,
     arguments: Vec<Argument>,
@@ -150,7 +171,7 @@ node_struct! {
 }
 
 node_struct! {
-  struct Argument {
+  pub struct Argument {
     name: Name,
     value: Value,
   }
@@ -161,14 +182,14 @@ node_struct! {
 ////////////////////////////////////////////////////////////////////////////////
 
 node_struct! {
-  struct FragmentSpread {
+  pub struct FragmentSpread {
     name: Name,
     directives: Vec<Directive>,
   }
 }
 
 node_struct! {
-  struct InlineFragment {
+  pub struct InlineFragment {
     type_condition: Option<NamedType>,
     directives: Vec<Directive>,
     selection_set: SelectionSet,
@@ -176,7 +197,7 @@ node_struct! {
 }
 
 node_struct! {
-  struct FragmentDefinition {
+  pub struct FragmentDefinition {
     name: Name,
     type_condition: NamedType,
     directives: Vec<Directive>,
@@ -189,7 +210,7 @@ node_struct! {
 ////////////////////////////////////////////////////////////////////////////////
 
 node_enum! {
-  enum Value {
+  pub enum Value {
     Variable(Variable),
     Int(IntValue),
     Float(FloatValue),
@@ -203,53 +224,53 @@ node_enum! {
 }
 
 node_struct! {
-  struct IntValue {
+  pub struct IntValue {
     value: i32,
   }
 }
 
 node_struct! {
-  struct FloatValue {
+  pub struct FloatValue {
     value: f32,
   }
 }
 
 node_struct! {
-  struct StringValue {
+  pub struct StringValue {
     value: String,
   }
 }
 
 node_struct! {
-  struct BooleanValue {
+  pub struct BooleanValue {
     value: bool,
   }
 }
 
 node_struct! {
-  struct NullValue {}
+  pub struct NullValue {}
 }
 
 node_struct! {
-  struct EnumValue {
+  pub struct EnumValue {
     value: String,
   }
 }
 
 node_struct! {
-  struct ListValue {
+  pub struct ListValue {
     values: Vec<Value>,
   }
 }
 
 node_struct! {
-  struct ObjectValue {
+  pub struct ObjectValue {
     fields: Vec<ObjectField>,
   }
 }
 
 node_struct! {
-  struct ObjectField {
+  pub struct ObjectField {
     name: Name,
     value: Value,
   }
@@ -260,7 +281,7 @@ node_struct! {
 ////////////////////////////////////////////////////////////////////////////////
 
 node_struct! {
-  struct Directive {
+  pub struct Directive {
     name: Name,
     arguments: Vec<Argument>,
   }
@@ -271,7 +292,7 @@ node_struct! {
 ////////////////////////////////////////////////////////////////////////////////
 
 node_enum! {
-  enum Type {
+  pub enum Type {
     Named(NamedType),
     List(ListType),
     NonNull(NonNullType),
@@ -279,7 +300,7 @@ node_enum! {
 }
 
 node_enum! {
-  enum NullableType {
+  pub enum NullableType {
     Named(NamedType),
     List(ListType),
   }
@@ -295,19 +316,19 @@ impl From<NullableType> for Type {
 }
 
 node_struct! {
-  struct NamedType {
+  pub struct NamedType {
     name: Name,
   }
 }
 
 node_struct! {
-  struct ListType {
+  pub struct ListType {
     typ: Box<Type>,
   }
 }
 
 node_struct! {
-  struct NonNullType {
+  pub struct NonNullType {
     typ: Box<NullableType>,
   }
 }
@@ -315,124 +336,134 @@ node_struct! {
 ////////////////////////////////////////////////////////////////////////////////
 // Type System Definition
 ////////////////////////////////////////////////////////////////////////////////
+//
+// The type system AST extension is an experimental non-spec addition.
 
-node_enum! {
-  enum TypeSystemDefinition {
-    Schema(SchemaDefinition),
-    Type(TypeDefinition),
-    TypeExtension(TypeExtensionDefinition),
-    Directive(DirectiveDefinition),
+#[cfg(feature = "type_system")]
+pub use self::type_system::*;
+
+#[cfg(feature = "type_system")]
+mod type_system {
+  use super::*;
+
+  node_enum! {
+    pub enum TypeSystemDefinition {
+      Schema(SchemaDefinition),
+      Type(TypeDefinition),
+      TypeExtension(TypeExtensionDefinition),
+      Directive(DirectiveDefinition),
+    }
   }
-}
 
-node_struct! {
-  struct SchemaDefinition {
-    directives: Vec<Directive>,
-    operation_types: Vec<OperationTypeDefinition>,
+  node_struct! {
+    pub struct SchemaDefinition {
+      directives: Vec<Directive>,
+      operation_types: Vec<OperationTypeDefinition>,
+    }
   }
-}
 
-node_struct! {
-  struct OperationTypeDefinition {
-    operation: OperationType,
-    typ: NamedType,
+  node_struct! {
+    pub struct OperationTypeDefinition {
+      operation: OperationType,
+      typ: NamedType,
+    }
   }
-}
 
-node_enum! {
-  enum TypeDefinition {
-    Scalar(ScalarTypeDefinition),
-    Object(ObjectTypeDefinition),
-    Interface(InterfaceTypeDefinition),
-    Union(UnionTypeDefinition),
-    Enum(EnumTypeDefinition),
-    InputObject(InputObjectTypeDefinition),
+  node_enum! {
+    pub enum TypeDefinition {
+      Scalar(ScalarTypeDefinition),
+      Object(ObjectTypeDefinition),
+      Interface(InterfaceTypeDefinition),
+      Union(UnionTypeDefinition),
+      Enum(EnumTypeDefinition),
+      InputObject(InputObjectTypeDefinition),
+    }
   }
-}
 
-node_struct! {
-  struct ScalarTypeDefinition {
-    name: Name,
-    directives: Vec<Directive>,
+  node_struct! {
+    pub struct ScalarTypeDefinition {
+      name: Name,
+      directives: Vec<Directive>,
+    }
   }
-}
 
-node_struct! {
-  struct ObjectTypeDefinition {
-    name: Name,
-    interfaces: Vec<NamedType>,
-    directives: Vec<Directive>,
-    fields: Vec<FieldDefinition>,
+  node_struct! {
+    pub struct ObjectTypeDefinition {
+      name: Name,
+      interfaces: Vec<NamedType>,
+      directives: Vec<Directive>,
+      fields: Vec<FieldDefinition>,
+    }
   }
-}
 
-node_struct! {
-  struct FieldDefinition {
-    name: Name,
-    arguments: Vec<InputValueDefinition>,
-    typ: Type,
-    directives: Vec<Directive>,
+  node_struct! {
+    pub struct FieldDefinition {
+      name: Name,
+      arguments: Vec<InputValueDefinition>,
+      typ: Type,
+      directives: Vec<Directive>,
+    }
   }
-}
 
-node_struct! {
-  struct InputValueDefinition {
-    name: Name,
-    typ: Type,
-    default_value: Value,
-    directives: Vec<Directive>,
+  node_struct! {
+    pub struct InputValueDefinition {
+      name: Name,
+      typ: Type,
+      default_value: Option<Value>,
+      directives: Vec<Directive>,
+    }
   }
-}
 
-node_struct! {
-  struct InterfaceTypeDefinition {
-    name: Name,
-    directives: Vec<Directive>,
-    fields: Vec<FieldDefinition>,
+  node_struct! {
+    pub struct InterfaceTypeDefinition {
+      name: Name,
+      directives: Vec<Directive>,
+      fields: Vec<FieldDefinition>,
+    }
   }
-}
 
-node_struct! {
-  struct UnionTypeDefinition {
-    name: Name,
-    directives: Vec<Directive>,
-    types: Vec<NamedType>,
+  node_struct! {
+    pub struct UnionTypeDefinition {
+      name: Name,
+      directives: Vec<Directive>,
+      types: Vec<NamedType>,
+    }
   }
-}
 
-node_struct! {
-  struct EnumTypeDefinition {
-    name: Name,
-    directives: Vec<Directive>,
-    values: Vec<EnumValueDefinition>,
+  node_struct! {
+    pub struct EnumTypeDefinition {
+      name: Name,
+      directives: Vec<Directive>,
+      values: Vec<EnumValueDefinition>,
+    }
   }
-}
 
-node_struct! {
-  struct EnumValueDefinition {
-    name: Name,
-    directives: Vec<Directive>,
+  node_struct! {
+    pub struct EnumValueDefinition {
+      name: Name,
+      directives: Vec<Directive>,
+    }
   }
-}
 
-node_struct! {
-  struct InputObjectTypeDefinition {
-    name: Name,
-    directives: Vec<Directive>,
-    fields: Vec<InputValueDefinition>,
+  node_struct! {
+    pub struct InputObjectTypeDefinition {
+      name: Name,
+      directives: Vec<Directive>,
+      fields: Vec<InputValueDefinition>,
+    }
   }
-}
 
-node_struct! {
-  struct TypeExtensionDefinition {
-    definition: ObjectTypeDefinition,
+  node_struct! {
+    pub struct TypeExtensionDefinition {
+      definition: ObjectTypeDefinition,
+    }
   }
-}
 
-node_struct! {
-  struct DirectiveDefinition {
-    name: Name,
-    arguments: Vec<InputValueDefinition>,
-    locations: Vec<Name>,
+  node_struct! {
+    pub struct DirectiveDefinition {
+      name: Name,
+      arguments: Vec<InputValueDefinition>,
+      locations: Vec<Name>,
+    }
   }
 }
