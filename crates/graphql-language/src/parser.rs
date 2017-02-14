@@ -1200,15 +1200,12 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
 mod tests {
   use super::*;
 
-  macro_rules! assert_parse_error {
-    ($source:expr, $error:expr) => ({
-      assert_eq!(parse($source.chars()), Err($error));
+  macro_rules! assert_parse {
+    ($source:expr, $result:expr) => ({
+      assert_eq!(parse($source.chars()), $result);
     })
   }
 
-  /// Creates a `Position` value for a one line situation as is common in our
-  /// tests. Takes the 0-indexed value and generates the column and line
-  /// numbers.
   fn pos1(index: usize) -> Position {
     Position {
       index: index,
@@ -1219,76 +1216,76 @@ mod tests {
 
   #[test]
   fn test_document_empty() {
-    assert_parse_error!("", Error::UnexpectedEnding(pos1(0)));
-    assert_parse_error!(" ", Error::UnexpectedEnding(pos1(0)));
-    assert_parse_error!("  ", Error::UnexpectedEnding(pos1(1)));
-    assert_parse_error!("   ", Error::UnexpectedEnding(pos1(2)));
+    assert_parse!("", Err(Error::UnexpectedEnding(pos1(0))));
+    assert_parse!(" ", Err(Error::UnexpectedEnding(pos1(0))));
+    assert_parse!("  ", Err(Error::UnexpectedEnding(pos1(1))));
+    assert_parse!("   ", Err(Error::UnexpectedEnding(pos1(2))));
   }
 
   #[test]
   fn test_selection_set_empty() {
-    assert_parse_error!("{}", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(1), pos1(1))));
-    assert_parse_error!("{ }", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(2), pos1(2))));
-    assert_parse_error!("{  }", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(3), pos1(3))));
-    assert_parse_error!("{   }", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(4), pos1(4))));
-    assert_parse_error!("{", Error::UnexpectedEnding(pos1(0)));
-    assert_parse_error!("{  ", Error::UnexpectedEnding(pos1(2)));
-    assert_parse_error!("query {}", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(7), pos1(7))));
-    assert_parse_error!("mutation {}", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(10), pos1(10))));
-    assert_parse_error!("{ foo {} }", Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(7), pos1(7))));
+    assert_parse!("{}", Err(Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(1), pos1(1)))));
+    assert_parse!("{ }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(2), pos1(2)))));
+    assert_parse!("{  }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(3), pos1(3)))));
+    assert_parse!("{   }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(4), pos1(4)))));
+    assert_parse!("{", Err(Error::UnexpectedEnding(pos1(0))));
+    assert_parse!("{  ", Err(Error::UnexpectedEnding(pos1(2))));
+    assert_parse!("query {}", Err(Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(7), pos1(7)))));
+    assert_parse!("mutation {}", Err(Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(10), pos1(10)))));
+    assert_parse!("{ foo {} }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightBrace, pos1(7), pos1(7)))));
   }
 
   #[test]
   fn parse_definition_bad_name() {
-    assert_parse_error!("hello", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("hello")), pos1(0), pos1(4))));
-    assert_parse_error!("hello {}", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("hello")), pos1(0), pos1(4))));
-    assert_parse_error!("  world", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("world")), pos1(2), pos1(6))));
-    assert_parse_error!("foo  ", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("foo")), pos1(0), pos1(2))));
-    assert_parse_error!("  bar  ", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("bar")), pos1(2), pos1(4))));
+    assert_parse!("hello", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("hello")), pos1(0), pos1(4)))));
+    assert_parse!("hello {}", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("hello")), pos1(0), pos1(4)))));
+    assert_parse!("  world", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("world")), pos1(2), pos1(6)))));
+    assert_parse!("foo  ", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("foo")), pos1(0), pos1(2)))));
+    assert_parse!("  bar  ", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("bar")), pos1(2), pos1(4)))));
   }
 
   #[test]
   fn test_variable_definitions_empty() {
-    assert_parse_error!("query ()", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(7), pos1(7))));
-    assert_parse_error!("mutation ()", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(10), pos1(10))));
-    assert_parse_error!("query (  )", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(9), pos1(9))));
+    assert_parse!("query ()", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(7), pos1(7)))));
+    assert_parse!("mutation ()", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(10), pos1(10)))));
+    assert_parse!("query (  )", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(9), pos1(9)))));
   }
 
   #[test]
   fn test_variable_definitions_no_dollar() {
-    assert_parse_error!("query (foo)", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("foo")), pos1(7), pos1(9))));
-    assert_parse_error!("query ($foo: Foo, bar)", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("bar")), pos1(18), pos1(20))));
+    assert_parse!("query (foo)", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("foo")), pos1(7), pos1(9)))));
+    assert_parse!("query ($foo: Foo, bar)", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("bar")), pos1(18), pos1(20)))));
   }
 
   #[test]
   fn test_variable_definitions_no_colon() {
-    assert_parse_error!("query ($foo Foo)", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("Foo")), pos1(12), pos1(14))));
-    assert_parse_error!("query ($foo: Foo, $bar Bar)", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("Bar")), pos1(23), pos1(25))));
+    assert_parse!("query ($foo Foo)", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("Foo")), pos1(12), pos1(14)))));
+    assert_parse!("query ($foo: Foo, $bar Bar)", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("Bar")), pos1(23), pos1(25)))));
   }
 
   #[test]
   fn test_variable_definitions_no_type_reference() {
-    assert_parse_error!("query ($foo:, $bar)", Error::UnexpectedToken(Token::new(TokenKind::Dollar, pos1(14), pos1(14))));
+    assert_parse!("query ($foo:, $bar)", Err(Error::UnexpectedToken(Token::new(TokenKind::Dollar, pos1(14), pos1(14)))));
   }
 
   #[test]
   fn test_variable_definitions_no_value_for_default_value() {
-    assert_parse_error!("query ($foo: Foo =)", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(18), pos1(18))));
+    assert_parse!("query ($foo: Foo =)", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(18), pos1(18)))));
   }
 
   #[test]
   fn test_arguments_empty() {
-    assert_parse_error!("{ foo() }", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(6), pos1(6))));
-    assert_parse_error!("{ foo( ) }", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(7), pos1(7))));
-    assert_parse_error!("{ foo(  ) }", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(8), pos1(8))));
-    assert_parse_error!("{ foo(   ) }", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(9), pos1(9))));
-    assert_parse_error!("{ foo { bar() } }", Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(12), pos1(12))));
+    assert_parse!("{ foo() }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(6), pos1(6)))));
+    assert_parse!("{ foo( ) }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(7), pos1(7)))));
+    assert_parse!("{ foo(  ) }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(8), pos1(8)))));
+    assert_parse!("{ foo(   ) }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(9), pos1(9)))));
+    assert_parse!("{ foo { bar() } }", Err(Error::UnexpectedToken(Token::new(TokenKind::RightParen, pos1(12), pos1(12)))));
   }
 
   #[test]
   fn test_arguments_no_colon() {
-    assert_parse_error!("{ foo(arg1 12) }", Error::UnexpectedToken(Token::new(TokenKind::Int(12), pos1(11), pos1(12))));
-    assert_parse_error!("{ foo(arg1 arg2) }", Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("arg2")), pos1(11), pos1(14))));
-    assert_parse_error!("{ foo(arg1: 12, arg2 34) }", Error::UnexpectedToken(Token::new(TokenKind::Int(34), pos1(21), pos1(22))));
+    assert_parse!("{ foo(arg1 12) }", Err(Error::UnexpectedToken(Token::new(TokenKind::Int(12), pos1(11), pos1(12)))));
+    assert_parse!("{ foo(arg1 arg2) }", Err(Error::UnexpectedToken(Token::new(TokenKind::Name(String::from("arg2")), pos1(11), pos1(14)))));
+    assert_parse!("{ foo(arg1: 12, arg2 34) }", Err(Error::UnexpectedToken(Token::new(TokenKind::Int(34), pos1(21), pos1(22)))));
   }
 }
