@@ -2,18 +2,92 @@
 
 extern crate graphql_language;
 
-use std::io::prelude::*;
-use std::fs::File;
-use graphql_language::parse_without_location;
+use graphql_language::{parse_without_location, print};
 use graphql_language::ast::*;
 
+const SOURCE: &'static str =
+r#"schema {
+  query: QueryType
+  mutation: MutationType
+}
+
+type Foo implements Bar {
+  one: Type
+  two(argument: InputType!): Type
+  three(argument: InputType, other: String): Int
+  four(argument: String = "string"): String
+  five(argument: [String] = ["string", "string"]): String
+  six(argument: InputType = {key: "value"}): Type
+  seven(argument: Int = null): Type
+}
+
+type AnnotatedObject @onObject(arg: "value") {
+  annotatedField(arg: Type = "default" @onArg): Type @onField
+}
+
+interface Bar {
+  one: Type
+  four(argument: String = "string"): String
+}
+
+interface AnnotatedInterface @onInterface {
+  annotatedField(arg: Type @onArg): Type @onField
+}
+
+union Feed = Story | Article | Advert
+
+union AnnotatedUnion @onUnion = A | B
+
+scalar CustomScalar
+
+scalar AnnotatedScalar @onScalar
+
+enum Site {
+  DESKTOP
+  MOBILE
+}
+
+enum AnnotatedEnum @onEnum {
+  ANNOTATED_VALUE @onEnumValue
+  OTHER_VALUE
+}
+
+input InputType {
+  key: String!
+  answer: Int = 42
+}
+
+input AnnotatedInput @onInputObjectType {
+  annotatedField: Type @onField
+}
+
+extend type Foo {
+  seven(argument: [String]): Type
+}
+
+extend type Foo @onType {}
+
+type NoFields {}
+
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"#;
+
 #[test]
-fn parse_kitchen_sink_schema() {
-  let mut file = File::open("tests/fixtures/kitchen-sink-schema.graphql").unwrap();
-  let mut string = String::new();
-  file.read_to_string(&mut string).unwrap();
-  let ast = parse_without_location(string.chars());
-  assert_eq!(ast, Ok(Document {
+fn kitchen_sink_schema_parse_and_print_2x() {
+  let parse1 = parse_without_location(SOURCE.chars()).unwrap();
+  let print1 = print(&parse1);
+  let parse2 = parse_without_location(print1.chars()).unwrap();
+  let print2 = print(&parse2);
+
+  assert_eq!(parse1, parse2);
+  assert_eq!(print1, print2);
+}
+
+#[test]
+fn kitchen_sink_schema_ast() {
+  let document = Document {
     loc: None,
     definitions: vec![
       Definition::TypeSystem(TypeSystemDefinition::Schema(SchemaDefinition {
@@ -967,5 +1041,7 @@ fn parse_kitchen_sink_schema() {
         ],
       })),
     ],
-  }));
+  };
+  assert_eq!(parse_without_location(SOURCE.chars()).as_ref(), Ok(&document));
+  assert_eq!(print(&document), SOURCE);
 }

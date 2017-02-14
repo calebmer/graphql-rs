@@ -4,7 +4,7 @@ use graphql_language::{parse_without_location, print};
 use graphql_language::ast::*;
 
 const SOURCE: &'static str =
-"query queryName($foo: ComplexType, $site: Site = MOBILE) {
+r#"query queryName($foo: ComplexType, $site: Site = MOBILE) {
   whoever123is: node(id: [123, 456]) {
     id
     ... on User @defer {
@@ -47,14 +47,14 @@ query StoryLikeSubscription($input: StoryLikeSubscribeInput) {
 }
 
 fragment frag on Friend {
-  foo(size: $size, bar: $b, obj: {key: \"value\"})
+  foo(size: $size, bar: $b, obj: {key: "value"})
 }
 
 {
   unnamed(truthy: true, falsey: false, nullish: null)
   query
 }
-";
+"#;
 
 #[test]
 fn kitchen_sink_parse_and_print_2x() {
@@ -68,7 +68,7 @@ fn kitchen_sink_parse_and_print_2x() {
 }
 
 #[test]
-fn kitchen_sink_parse_ast() {
+fn kitchen_sink_ast() {
   let document = Document {
     loc: None,
     definitions: vec![
@@ -741,7 +741,6 @@ fn kitchen_sink_parse_ast() {
       }),
     ],
   };
-
-  assert_eq!(parse_without_location(SOURCE.chars()), Ok(document.clone()));
+  assert_eq!(parse_without_location(SOURCE.chars()).as_ref(), Ok(&document));
   assert_eq!(print(&document), SOURCE);
 }
