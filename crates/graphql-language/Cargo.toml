@@ -1,5 +1,5 @@
 [package]
-name = "graphql_language"
+name = "graphql-language"
 version = "0.1.0"
 authors = ["Caleb Meredith <calebmeredith8@gmail.com>"]
 
