@@ -1,6 +1,0 @@
-[package]
-name = "graphql-type"
-version = "0.1.0"
-authors = ["Caleb Meredith <calebmeredith8@gmail.com>"]
-
-[dependencies]
