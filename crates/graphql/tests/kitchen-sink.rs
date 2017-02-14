@@ -1,7 +1,7 @@
-extern crate graphql_language;
+extern crate graphql;
 
-use graphql_language::{parse_without_location, print};
-use graphql_language::ast::*;
+use graphql::language::{parse_without_location, print};
+use graphql::language::ast::*;
 
 const SOURCE: &'static str =
 r#"query queryName($foo: ComplexType, $site: Site = MOBILE) {

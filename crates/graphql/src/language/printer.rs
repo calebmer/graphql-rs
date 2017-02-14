@@ -393,8 +393,8 @@ impl Printer {
 #[cfg(feature = "type_system")]
 impl Printer {
   fn print_type_system_definition(&mut self, node: &ast::TypeSystemDefinition) {
-    use ast::TypeSystemDefinition::*;
-    use ast::TypeDefinition::*;
+    use self::ast::TypeSystemDefinition::*;
+    use self::ast::TypeDefinition::*;
     match node {
       &Schema(ref node) => self.print_schema_definition(node),
       &Type(Scalar(ref node)) => self.print_scalar_type_definition(node),
