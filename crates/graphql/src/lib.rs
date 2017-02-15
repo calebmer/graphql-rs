@@ -1,2 +1,2 @@
 pub mod language;
-pub mod type_;
+pub mod types;
