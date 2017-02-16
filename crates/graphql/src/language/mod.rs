@@ -7,6 +7,7 @@ mod position;
 mod lexer;
 mod parser;
 mod printer;
+mod visitor;
 
 pub mod ast;
 
@@ -14,3 +15,4 @@ pub use self::position::{Position, Location};
 pub use self::lexer::{Token, TokenKind, Error as LexerError};
 pub use self::parser::{parse, parse_without_location, Error};
 pub use self::printer::{print};
+pub use self::visitor::{visit, Visitor, ParallelVisitor};

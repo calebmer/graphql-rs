@@ -169,10 +169,10 @@ impl Printer {
   fn print_variable_definition(&mut self, node: &ast::VariableDefinition) {
     self.print_variable(&node.variable);
     self.push(": ");
-    self.print_type_reference(&node.typ);
+    self.print_type(&node.type_);
     if let Some(ref default_value) = node.default_value {
       self.push(" = ");
-      self.print_value_literal(default_value);
+      self.print_value(default_value);
     }
   }
 
@@ -226,7 +226,7 @@ impl Printer {
   fn print_argument(&mut self, node: &ast::Argument) {
     self.print_name(&node.name);
     self.push(": ");
-    self.print_value_literal(&node.value);
+    self.print_value(&node.value);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -264,7 +264,7 @@ impl Printer {
   // Values
   //////////////////////////////////////////////////////////////////////////////
 
-  fn print_value_literal(&mut self, node: &ast::Value) {
+  fn print_value(&mut self, node: &ast::Value) {
     match node {
       &ast::Value::Variable(ref node) => self.print_variable(node),
       &ast::Value::Int(ref node) => self.push(&node.value.to_string()),
@@ -303,7 +303,7 @@ impl Printer {
     self.push("[");
     self.many(
       &node.values,
-      Printer::print_value_literal,
+      Printer::print_value,
       ", ",
     );
     self.push("]");
@@ -322,7 +322,7 @@ impl Printer {
   fn print_object_field(&mut self, node: &ast::ObjectField) {
     self.print_name(&node.name);
     self.push(": ");
-    self.print_value_literal(&node.value);
+    self.print_value(&node.value);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -358,7 +358,7 @@ impl Printer {
   // Type Reference
   //////////////////////////////////////////////////////////////////////////////
 
-  fn print_type_reference(&mut self, node: &ast::Type) {
+  fn print_type(&mut self, node: &ast::Type) {
     match node {
       &ast::Type::Named(ref node) => self.print_named_type(node),
       &ast::Type::List(ref node) => self.print_list_type(node),
@@ -372,12 +372,12 @@ impl Printer {
 
   fn print_list_type(&mut self, node: &ast::ListType) {
     self.push("[");
-    self.print_type_reference(&node.typ);
+    self.print_type(&node.type_);
     self.push("]");
   }
 
   fn print_non_null_type(&mut self, node: &ast::NonNullType) {
-    match *node.typ {
+    match *node.type_ {
       ast::NullableType::Named(ref node) => self.print_named_type(node),
       ast::NullableType::List(ref node) => self.print_list_type(node),
     }
@@ -471,17 +471,17 @@ impl Printer {
       self.push(")");
     }
     self.push(": ");
-    self.print_type_reference(&node.typ);
+    self.print_type(&node.typ);
     self.print_directives(&node.directives);
   }
 
   fn print_input_value_definition(&mut self, node: &ast::InputValueDefinition) {
     self.print_name(&node.name);
     self.push(": ");
-    self.print_type_reference(&node.typ);
+    self.print_type(&node.typ);
     if let Some(ref default_value) = node.default_value {
       self.push(" = ");
-      self.print_value_literal(default_value);
+      self.print_value(default_value);
     }
     self.print_directives(&node.directives);
   }

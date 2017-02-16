@@ -135,7 +135,7 @@ pub enum OperationType {
 node_struct! {
   pub struct VariableDefinition {
     variable: Variable,
-    typ: Type,
+    type_: Type,
     default_value: Option<Value>,
   }
 }
@@ -323,13 +323,13 @@ node_struct! {
 
 node_struct! {
   pub struct ListType {
-    typ: Box<Type>,
+    type_: Box<Type>,
   }
 }
 
 node_struct! {
   pub struct NonNullType {
-    typ: Box<NullableType>,
+    type_: Box<NullableType>,
   }
 }
 

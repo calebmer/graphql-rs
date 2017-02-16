@@ -382,10 +382,10 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let start = self.pos();
     let variable = try!(self.parse_variable());
     try!(self.expect(&TokenKind::Colon));
-    let typ = try!(self.parse_type_reference());
+    let type_ = try!(self.parse_type());
     let default_value = {
       if let Some(_) = self.next_if(&TokenKind::Equals) {
-        Some(try!(self.parse_value_literal()))
+        Some(try!(self.parse_value()))
       } else {
         None
       }
@@ -393,7 +393,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     Ok(ast::VariableDefinition {
       loc: self.loc(start),
       variable: variable,
-      typ: typ,
+      type_: type_,
       default_value: default_value,
     })
   }
@@ -498,7 +498,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let start = self.pos();
     let name = try!(self.parse_name());
     try!(self.expect(&TokenKind::Colon));
-    let value = try!(self.parse_value_literal());
+    let value = try!(self.parse_value());
     Ok(ast::Argument {
       loc: self.loc(start),
       name: name,
@@ -615,7 +615,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   ///
   /// EnumValue : Name but not `true`, `false` or `null`
   /// ```
-  fn parse_value_literal(&mut self) -> Result<ast::Value, Error> {
+  fn parse_value(&mut self) -> Result<ast::Value, Error> {
     let start = self.pos();
 
     if self.check(&TokenKind::LeftBracket) {
@@ -683,7 +683,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let start = self.pos();
     let values = try!(self.many(
       &TokenKind::LeftBracket,
-      Parser::parse_value_literal,
+      Parser::parse_value,
       &TokenKind::RightBracket,
       true,
     ));
@@ -719,7 +719,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let start = self.pos();
     let name = try!(self.parse_name());
     try!(self.expect(&TokenKind::Colon));
-    let value = try!(self.parse_value_literal());
+    let value = try!(self.parse_value());
     Ok(ast::ObjectField {
       loc: self.loc(start),
       name: name,
@@ -774,17 +774,17 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
   ///   - ListType
   ///   - NonNullType
   /// ```
-  fn parse_type_reference(&mut self) -> Result<ast::Type, Error> {
+  fn parse_type(&mut self) -> Result<ast::Type, Error> {
     let start = self.pos();
 
     let nullable_type = {
       // If we hit a left bracket, this is likely an array type.
       if let Some(_) = self.next_if(&TokenKind::LeftBracket) {
-        let typ = try!(self.parse_type_reference());
+        let type_ = try!(self.parse_type());
         try!(self.expect(&TokenKind::RightBracket));
         ast::NullableType::List(ast::ListType {
           loc: self.loc(start),
-          typ: Box::new(typ),
+          type_: Box::new(type_),
         })
       }
       // Otherwise we try and parse a named type.
@@ -797,7 +797,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     if let Some(_) = self.next_if(&TokenKind::Bang) {
       Ok(ast::Type::NonNull(ast::NonNullType {
         loc: self.loc(start),
-        typ: Box::new(nullable_type),
+        type_: Box::new(nullable_type),
       }))
     }
     // Otherwise, convert the nullable type into an actual type.
@@ -980,7 +980,7 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let name = try!(self.parse_name());
     let arguments = if self.check(&TokenKind::LeftParen) { try!(self.parse_argument_definitions()) } else { vec![] };
     try!(self.expect(&TokenKind::Colon));
-    let typ = try!(self.parse_type_reference());
+    let typ = try!(self.parse_type());
     let directives = try!(self.parse_directives());
     Ok(ast::FieldDefinition {
       loc: self.loc(start),
@@ -1010,10 +1010,10 @@ impl<I> Parser<I> where I: Iterator<Item=char> {
     let start = self.pos();
     let name = try!(self.parse_name());
     try!(self.expect(&TokenKind::Colon));
-    let typ = try!(self.parse_type_reference());
+    let typ = try!(self.parse_type());
     let default_value = {
       if let Some(_) = self.next_if(&TokenKind::Equals) {
-        Some(try!(self.parse_value_literal()))
+        Some(try!(self.parse_value()))
       } else {
         None
       }
